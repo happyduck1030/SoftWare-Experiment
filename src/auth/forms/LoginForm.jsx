@@ -27,7 +27,7 @@ const LoginForm = () => {
   const navigate = useNavigate();
   // const {setToken}=  useUserStore();
   const [form] = Form.useForm();
-  const [currentRole, setCurrentRole] = useState("student");
+  const [currentRole, setCurrentRole] = useState("employee");
   const handleRoleChange = (role) => {
     setCurrentRole(role);
   };
@@ -37,23 +37,17 @@ const LoginForm = () => {
    setToken(res.data.token);
 
    if(currentRole==='admin')navigate('/admin/content')
-    else if(currentRole==='student')navigate('/student/content')
-   else if(currentRole==='teacher')navigate('/teacher/content')
+    else if(currentRole==='employee')navigate('/employee/content')
    console.log(res);
-   
   };
   // 角色配置
   const roleConfig = {
-    student: {
+    employee: {
       backgroundImage: "/public/assets/images/stu.png",
       // api: stuLoginAPI,
       // getInfoAPI: getStuInfoAPI,
     },
-    teacher: {
-      backgroundImage: "/public/assets/images/teacher.png",
-      // api: teaLoginAPI,
-      // getInfoAPI: getTeaInfoAPI,
-    },
+  
     admin: {
       backgroundImage: "/public/assets/images/manager.png",
       // api: loginAPI,
@@ -63,11 +57,11 @@ const LoginForm = () => {
   return (
     <>
       <h1 className="h3-bold md:h2-bold pb-5 sm:pb-12 text-white font-bold text-2xl">
-        425.5学生管理系统
+        人力资源管理
       </h1>
 
       <p className="text-white font-light text-xl small-medium md:base-regular mt-2 mb-4 ">
-       没有告知登录的义务
+       老板我喜欢加班
       </p>
       <div className="w-full  max-w-2xl h-[500px] max-h-2xl mt-4 py-12 px-4 sm:px-6 lg:px-8 bg-white/5 backdrop-blur-sm rounded-lg shadow-lg overflow-hidden flex gap-4">
         <Form
@@ -77,28 +71,21 @@ const LoginForm = () => {
           form={form}
         >
           <div className="flex justify-center mb-6">
+            
             <Button
               color={currentRole === "admin" ? "purple" : ""}
               variant="solid"
-              className="mr-16"
+              className="mr-4"
               onClick={() => handleRoleChange("admin")}
             >
               我是管理员
             </Button>
             <Button
-              color={currentRole === "student" ? "purple" : ""}
+              color={currentRole === "employee" ? "purple" : ""}
               variant="solid"
-              className="mr-4"
-              onClick={() => handleRoleChange("student")}
+              onClick={() => handleRoleChange("employee")}
             >
-              我是学生
-            </Button>
-            <Button
-              color={currentRole === "teacher" ? "purple" : ""}
-              variant="solid"
-              onClick={() => handleRoleChange("teacher")}
-            >
-              我是老师
+              我是员工
             </Button>
           </div>
           <div
