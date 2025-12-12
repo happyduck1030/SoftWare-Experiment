@@ -1,50 +1,34 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { message, Spin } from 'antd'
+import { getMySalary } from '../../services/employeeService'
 
 const EmployeeSalary = () => {
-  const [salaryRecords] = useState([
-    {
-      id: 1,
-      month: '2024-01',
-      items: [
-        { name: '基本工资', amount: 8000 },
-        { name: '绩效奖金', amount: 3000 },
-        { name: '交通补贴', amount: 500 },
-        { name: '餐饮补贴', amount: 500 }
-      ],
-      total: 12000,
-      paymentDate: '2024-01-31',
-      status: 'paid'
-    },
-    {
-      id: 2,
-      month: '2023-12',
-      items: [
-        { name: '基本工资', amount: 8000 },
-        { name: '绩效奖金', amount: 2500 },
-        { name: '交通补贴', amount: 500 },
-        { name: '餐饮补贴', amount: 500 }
-      ],
-      total: 11500,
-      paymentDate: '2023-12-31',
-      status: 'paid'
-    },
-    {
-      id: 3,
-      month: '2023-11',
-      items: [
-        { name: '基本工资', amount: 8000 },
-        { name: '绩效奖金', amount: 3500 },
-        { name: '交通补贴', amount: 500 },
-        { name: '餐饮补贴', amount: 500 }
-      ],
-      total: 12500,
-      paymentDate: '2023-11-30',
-      status: 'paid'
-    }
-  ])
-
+  const [salaryRecords, setSalaryRecords] = useState([])
+  const [loading, setLoading] = useState(true)
   const [selectedRecord, setSelectedRecord] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  // 获取薪酬记录
+  useEffect(() => {
+    fetchSalaryRecords()
+  }, [])
+
+  const fetchSalaryRecords = async () => {
+    try {
+      setLoading(true)
+      const response = await getMySalary()
+      if (response.success) {
+        setSalaryRecords(response.data || [])
+      } else {
+        message.error(response.message || '获取薪酬记录失败')
+      }
+    } catch (error) {
+      console.error('Failed to fetch salary records:', error)
+      message.error(error.message || '获取薪酬记录失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleViewDetail = (record) => {
     setSelectedRecord(record)
@@ -57,6 +41,21 @@ const EmployeeSalary = () => {
 
   const getAverageSalary = () => {
     return salaryRecords.length > 0 ? Math.round(getTotalSalary() / salaryRecords.length) : 0
+  }
+
+  // 格式化日期
+  const formatDate = (dateString) => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    return date.toISOString().split('T')[0]
+  }
+
+  if (loading) {
+    return (
+      <div className="h-full bg-[#fafafa] p-8 flex items-center justify-center">
+        <Spin size="large" tip="加载中..." />
+      </div>
+    )
   }
 
   return (
@@ -110,52 +109,59 @@ const EmployeeSalary = () => {
         </div>
 
         {/* 薪酬记录列表 */}
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放月份</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">薪酬总额</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放日期</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
-                  <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {salaryRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50 transition-colors duration-150">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center">
-                          <span className="text-lg">📅</span>
-                        </div>
-                        <span className="font-medium text-gray-900">{record.month}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-lg font-semibold text-[#59168b]">¥{record.total.toLocaleString()}</span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-700">{record.paymentDate}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                        ✓ 已发放
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleViewDetail(record)}
-                        className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-150 cursor-pointer"
-                      >
-                        查看明细
-                      </button>
-                    </td>
+        {salaryRecords.length > 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放月份</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">薪酬总额</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">发放日期</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
+                    <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {salaryRecords.map((record, index) => (
+                    <tr key={index} className="hover:bg-gray-50 transition-colors duration-150">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center">
+                            <span className="text-lg">📅</span>
+                          </div>
+                          <span className="font-medium text-gray-900">{record.month}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-lg font-semibold text-[#59168b]">¥{record.total.toLocaleString()}</span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-700">{formatDate(record.paymentDate)}</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                          ✓ 已发放
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          onClick={() => handleViewDetail(record)}
+                          className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-150 cursor-pointer"
+                        >
+                          查看明细
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+            <div className="text-6xl mb-4">💼</div>
+            <p className="text-gray-600 text-lg">暂无薪酬记录</p>
+          </div>
+        )}
 
         {/* 提示信息 */}
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
@@ -187,33 +193,35 @@ const EmployeeSalary = () => {
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-xs text-gray-500 mb-1">发放日期</p>
-                  <p className="text-sm font-medium text-gray-900">{selectedRecord.paymentDate}</p>
+                  <p className="text-sm font-medium text-gray-900">{formatDate(selectedRecord.paymentDate)}</p>
                 </div>
               </div>
 
               {/* 薪酬项目明细 */}
-              <div>
-                <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
-                  <span className="w-1 h-4 bg-[#59168b] rounded mr-2"></span>
-                  薪酬项目明细
-                </h4>
-                <div className="space-y-2">
-                  {selectedRecord.items.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-4">
-                      <span className="text-sm text-gray-700">{item.name}</span>
-                      <span className="text-base font-semibold text-gray-900">¥{item.amount.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
+              {selectedRecord.items && selectedRecord.items.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center">
+                    <span className="w-1 h-4 bg-[#59168b] rounded mr-2"></span>
+                    薪酬项目明细
+                  </h4>
+                  <div className="space-y-2">
+                    {selectedRecord.items.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center bg-gray-50 rounded-lg p-4">
+                        <span className="text-sm text-gray-700">{item.name}</span>
+                        <span className="text-base font-semibold text-gray-900">¥{item.amount.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
 
-                {/* 总额 */}
-                <div className="mt-4 bg-[#59168b]/5 border-2 border-[#59168b] rounded-xl p-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-semibold text-gray-900">实发总额</span>
-                    <span className="text-2xl font-bold text-[#59168b]">¥{selectedRecord.total.toLocaleString()}</span>
+                  {/* 总额 */}
+                  <div className="mt-4 bg-[#59168b]/5 border-2 border-[#59168b] rounded-xl p-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold text-gray-900">实发总额</span>
+                      <span className="text-2xl font-bold text-[#59168b]">¥{selectedRecord.total.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="flex gap-3 p-6 bg-gray-50 border-t border-gray-200">
@@ -232,5 +240,3 @@ const EmployeeSalary = () => {
 }
 
 export default EmployeeSalary
-
-

@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { SmileOutlined } from "@ant-design/icons";
-import { Form, Input, Button, Checkbox, message, Select } from "antd";
+import { Form, Input, Button, Checkbox, message } from "antd";
 import { useNavigate } from "react-router-dom";
-// import { loginAPI } from "../../apis/info/info";
-// import useUserStore from "../../stores/userStore";
+import { login } from "../../services/authService";
 const formItemLayout = {
   labelCol: {
     xs: {
@@ -31,14 +30,38 @@ const LoginForm = () => {
   const handleRoleChange = (role) => {
     setCurrentRole(role);
   };
-  //表单提交事件
-  const handleLogin = async (values) => { 
-   const res=await loginAPI(values);
-   setToken(res.data.token);
+  const [loading, setLoading] = useState(false);
 
-   if(currentRole==='admin')navigate('/admin/content')
-    else if(currentRole==='employee')navigate('/employee/content')
-   console.log(res);
+  //表单提交事件
+  const handleLogin = async (values) => {
+    try {
+      setLoading(true);
+      const response = await login(values.username, values.password);
+      
+      if (response.success) {
+        const { user, token } = response.data;
+        
+        // 保存token和用户信息
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        
+        message.success('登录成功！');
+        
+        // 根据用户角色跳转
+        if (user.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/employee');
+        }
+      } else {
+        message.error(response.message || '登录失败');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      message.error(error.message || '登录失败，请检查用户名和密码');
+    } finally {
+      setLoading(false);
+    }
   };
   // 角色配置
   const roleConfig = {
@@ -175,11 +198,12 @@ const LoginForm = () => {
               <Form.Item wrapperCol={{ offset: 6, span: 14 }}>
                 <Button
                   variant="solid"
-                 color="purple"
+                  color="purple"
                   htmlType="submit"
                   block
+                  loading={loading}
                 >
-                  登录
+                  {loading ? '登录中...' : '登录'}
                 </Button>
               </Form.Item>
 

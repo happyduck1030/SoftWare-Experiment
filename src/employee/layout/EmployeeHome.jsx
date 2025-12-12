@@ -1,17 +1,63 @@
-import React from 'react'
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import React, { useState, useEffect } from 'react'
+import { Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom'
+import { message } from 'antd'
 import EmployeeArchive from '../pages/EmployeeArchive'
 import EmployeeSalary from '../pages/EmployeeSalary'
+import OrganizationInfo from '../pages/OrganizationInfo'
+import SubordinateManagement from '../pages/SubordinateManagement'
 
 const EmployeeHome = () => {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [userInfo, setUserInfo] = useState(null)
 
-  const menuItems = [
+  // 从localStorage获取用户信息
+  useEffect(() => {
+    const userStr = localStorage.getItem('user')
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr)
+        setUserInfo(user)
+      } catch (error) {
+        console.error('Failed to parse user info:', error)
+        message.error('用户信息无效，请重新登录')
+        navigate('/')
+      }
+    } else {
+      message.error('未登录，请先登录')
+      navigate('/')
+    }
+  }, [])
+
+  // 根据用户角色动态生成菜单
+  const menuItems = userInfo ? [
     { name: '个人档案', path: '/employee/archive', icon: '📝' },
+    { name: '组织架构', path: '/employee/organization', icon: '🏢' },
     { name: '薪酬记录', path: '/employee/salary', icon: '💰' },
-  ]
+    ...(userInfo.isBoss ? [{ name: '下属管理', path: '/employee/subordinates', icon: '👥' }] : [])
+  ] : []
 
   const isActive = (path) => location.pathname === path
+
+  // 退出登录
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    message.success('已退出登录')
+    navigate('/')
+  }
+
+  // 如果没有用户信息，显示加载中
+  if (!userInfo) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-[#fafafa]">
+        <div className="text-center">
+          <div className="text-4xl mb-4">⏳</div>
+          <div className="text-gray-600">加载中...</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-screen w-screen bg-[#fafafa] overflow-hidden">
@@ -23,15 +69,32 @@ const EmployeeHome = () => {
 
         {/* 用户信息 */}
         <div className="px-4 py-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-full bg-[#59168b] flex items-center justify-center text-white text-sm font-medium">
-              张
+          <div className="flex items-center space-x-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-[#59168b] flex items-center justify-center text-white text-sm font-medium shadow-md">
+              {userInfo.name?.charAt(0) || 'U'}
             </div>
-            <div>
-              <div className="text-sm font-medium text-gray-900">张三</div>
-              <div className="text-xs text-gray-500">前端工程师</div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-900">{userInfo.name || '用户'}</div>
+              <div className="text-xs text-gray-500">{userInfo.position || '员工'}</div>
             </div>
           </div>
+          {/* 机构信息 */}
+          {userInfo.organizationPath && (
+            <div className="bg-gray-50 rounded-lg p-2 mt-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs">🏛️</span>
+                <span className="text-xs text-gray-600 truncate" title={userInfo.organizationPath.level3}>
+                  {userInfo.organizationPath.level3}
+                </span>
+              </div>
+              {userInfo.isBoss && (
+                <div className="flex items-center space-x-1 mt-1">
+                  <span className="text-xs">👑</span>
+                  <span className="text-xs text-[#59168b] font-medium">负责人</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 导航菜单 */}
@@ -57,7 +120,10 @@ const EmployeeHome = () => {
 
         {/* 底部 */}
         <div className="p-4 border-t border-gray-200">
-          <button className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 transition-colors duration-150">
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 transition-colors duration-150"
+          >
             <span className="text-base">🚪</span>
             <span className="text-sm font-medium">退出登录</span>
           </button>
@@ -86,7 +152,11 @@ const EmployeeHome = () => {
             <Routes>
               <Route path="/" element={<Navigate to="/employee/archive" replace />} />
               <Route path="/archive" element={<EmployeeArchive />} />
+              <Route path="/organization" element={<OrganizationInfo />} />
               <Route path="/salary" element={<EmployeeSalary />} />
+              {userInfo.isBoss && (
+                <Route path="/subordinates" element={<SubordinateManagement />} />
+              )}
             </Routes>
           </div>
         </div>
