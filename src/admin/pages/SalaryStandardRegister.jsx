@@ -1,24 +1,30 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getSalaryStandards, createSalaryStandard, getOrganizations, getPositions, getSalaryItems } from '../../services/adminService'
 
 const SalaryStandardRegister = () => {
   const [standards, setStandards] = useState([])
+  const [organizations, setOrganizations] = useState([])
+  const [positions, setPositions] = useState([])
+  const [salaryItems, setSalaryItems] = useState([])
+  const [loading, setLoading] = useState(true)
   
-  const [organizations] = useState([
-    { id: 5, name: '前端组', path: '总公司 / 技术部 / 前端组' },
-    { id: 6, name: '后端组', path: '总公司 / 技术部 / 后端组' },
-  ])
+  // 假数据保留作为注释参考
+  // const [organizations] = useState([
+  //   { id: 5, name: '前端组', path: '总公司 / 技术部 / 前端组' },
+  //   { id: 6, name: '后端组', path: '总公司 / 技术部 / 后端组' },
+  // ])
 
-  const [positions] = useState([
-    { id: 1, name: '前端工程师', organizationId: 5 },
-    { id: 2, name: '后端工程师', organizationId: 6 },
-  ])
+  // const [positions] = useState([
+  //   { id: 1, name: '前端工程师', organizationId: 5 },
+  //   { id: 2, name: '后端工程师', organizationId: 6 },
+  // ])
 
-  const [salaryItems] = useState([
-    { id: 1, name: '基本工资', type: 'fixed' },
-    { id: 2, name: '绩效奖金', type: 'floating' },
-    { id: 3, name: '交通补贴', type: 'fixed' },
-    { id: 4, name: '餐饮补贴', type: 'fixed' },
-  ])
+  // const [salaryItems] = useState([
+  //   { id: 1, name: '基本工资', type: 'fixed' },
+  //   { id: 2, name: '绩效奖金', type: 'floating' },
+  //   { id: 3, name: '交通补贴', type: 'fixed' },
+  //   { id: 4, name: '餐饮补贴', type: 'fixed' },
+  // ])
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [formData, setFormData] = useState({
@@ -27,6 +33,75 @@ const SalaryStandardRegister = () => {
     items: {}
   })
   const [availablePositions, setAvailablePositions] = useState([])
+  const [submitting, setSubmitting] = useState(false)
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        
+        // 并行加载所有数据
+        const [standardsRes, orgsRes, positionsRes, itemsRes] = await Promise.all([
+          getSalaryStandards(),
+          getOrganizations({ level: 3 }), // 只获取三级机构
+          getPositions(),
+          getSalaryItems()
+        ])
+        
+        // 处理薪酬标准数据
+        const standardsData = standardsRes.data || []
+        const formattedStandards = standardsData.map(standard => ({
+          id: standard._id,
+          organizationId: standard.pos_id?.org_id?._id || standard.pos_id?.org_id,
+          organizationName: standard.pos_id?.org_id?.org_name || '',
+          organizationPath: standard.pos_id?.org_id?.fullPath || '',
+          positionId: standard.pos_id?._id,
+          positionName: standard.pos_id?.pos_name || '',
+          items: standard.items || {},
+          total: Object.values(standard.items || {}).reduce((sum, val) => sum + val, 0),
+          status: standard.reviewed ? '已复核' : '待复核',
+          createTime: standard.created_at ? new Date(standard.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
+        }))
+        setStandards(formattedStandards)
+        
+        // 处理机构数据
+        const orgsData = orgsRes.data || []
+        const formattedOrgs = orgsData.map(org => ({
+          id: org._id,
+          name: org.org_name,
+          path: org.fullPath || org.org_name
+        }))
+        setOrganizations(formattedOrgs)
+        
+        // 处理职位数据
+        const positionsData = positionsRes.data || []
+        const formattedPositions = positionsData.map(pos => ({
+          id: pos._id,
+          name: pos.pos_name,
+          organizationId: pos.org_id?._id || pos.org_id
+        }))
+        setPositions(formattedPositions)
+        
+        // 处理薪酬项目数据
+        const itemsData = itemsRes.data || []
+        const formattedItems = itemsData.map(item => ({
+          id: item._id,
+          name: item.item_name,
+          type: item.is_active ? 'fixed' : 'floating'
+        }))
+        setSalaryItems(formattedItems)
+        
+      } catch (error) {
+        console.error('加载数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleAdd = () => {
     const initialItems = {}
@@ -39,9 +114,9 @@ const SalaryStandardRegister = () => {
   }
 
   const handleOrganizationChange = (orgId) => {
-    const filtered = positions.filter(p => p.organizationId === Number(orgId))
+    const filtered = positions.filter(p => p.organizationId === orgId)
     setAvailablePositions(filtered)
-    setFormData({ ...formData, organizationId: Number(orgId), positionId: null })
+    setFormData({ ...formData, organizationId: orgId, positionId: null })
   }
 
   const handleItemChange = (itemId, value) => {
@@ -51,32 +126,51 @@ const SalaryStandardRegister = () => {
     })
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.organizationId || !formData.positionId) {
       alert('请选择机构和职位')
       return
     }
 
-    const org = organizations.find(o => o.id === formData.organizationId)
-    const pos = positions.find(p => p.id === formData.positionId)
-    const total = Object.values(formData.items).reduce((sum, val) => sum + val, 0)
+    try {
+      setSubmitting(true)
+      
+      const org = organizations.find(o => o.id === formData.organizationId)
+      const pos = positions.find(p => p.id === formData.positionId)
+      
+      // 准备提交给后端的数据
+      const createData = {
+        pos_id: formData.positionId,
+        items: formData.items
+      }
+      
+      // 调用API创建薪酬标准
+      const response = await createSalaryStandard(createData)
+      const newStandardData = response.data
+      
+      // 转换为前端格式
+      const newStandard = {
+        id: newStandardData._id,
+        organizationId: formData.organizationId,
+        organizationName: org?.name || '',
+        organizationPath: org?.path || '',
+        positionId: formData.positionId,
+        positionName: pos?.name || '',
+        items: formData.items,
+        total: Object.values(formData.items).reduce((sum, val) => sum + val, 0),
+        status: newStandardData.reviewed ? '已复核' : '待复核',
+        createTime: newStandardData.created_at ? new Date(newStandardData.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
+      }
 
-    const newStandard = {
-      id: Date.now(),
-      organizationId: formData.organizationId,
-      organizationName: org.name,
-      organizationPath: org.path,
-      positionId: formData.positionId,
-      positionName: pos.name,
-      items: formData.items,
-      total,
-      status: 'pending',
-      createTime: new Date().toLocaleString('zh-CN', { hour12: false })
+      setStandards([newStandard, ...standards])
+      setIsModalOpen(false)
+      alert('薪酬标准已提交，等待复核')
+    } catch (error) {
+      console.error('创建薪酬标准失败:', error)
+      alert(error.message || '薪酬标准创建失败')
+    } finally {
+      setSubmitting(false)
     }
-
-    setStandards([newStandard, ...standards])
-    setIsModalOpen(false)
-    alert('薪酬标准已提交，等待复核')
   }
 
   const getTotalAmount = () => {
@@ -155,7 +249,14 @@ const SalaryStandardRegister = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {standards.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
+                    </td>
+                  </tr>
+                ) : standards.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="px-6 py-20 text-center">
                       <div className="text-6xl mb-4">📭</div>
@@ -212,7 +313,7 @@ const SalaryStandardRegister = () => {
                   <label className="block text-sm font-medium text-gray-900 mb-2">职位 *</label>
                   <select
                     value={formData.positionId || ''}
-                    onChange={(e) => setFormData({ ...formData, positionId: Number(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, positionId: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
                     disabled={!formData.organizationId}
                   >
@@ -274,9 +375,10 @@ const SalaryStandardRegister = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
-                提交登记
+                {submitting ? '提交中...' : '提交登记'}
               </button>
             </div>
           </div>

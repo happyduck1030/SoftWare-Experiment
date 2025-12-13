@@ -1,12 +1,19 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getArchives, getOrganizations, getPositions } from '../../services/adminService'
 
 const ArchiveSearch = () => {
-  const [archives] = useState([
-    { id: 1, name: '张三', gender: '男', idCard: '110101199001011234', phone: '13800138000', entryDate: '2024-01-15', organizationPath: '总公司 / 技术部 / 前端组', positionName: '前端工程师', status: 'approved' },
-    { id: 2, name: '李四', gender: '男', idCard: '110101199102021235', phone: '13800138001', entryDate: '2024-01-10', organizationPath: '总公司 / 技术部 / 后端组', positionName: '后端工程师', status: 'approved' },
-    { id: 3, name: '王五', gender: '女', idCard: '110101199203031236', phone: '13800138002', entryDate: '2024-01-08', organizationPath: '总公司 / 人事部 / 招聘组', positionName: '招聘专员', status: 'approved' },
-    { id: 4, name: '赵六', gender: '女', idCard: '110101199304041237', phone: '13800138003', entryDate: '2024-01-05', organizationPath: '总公司 / 财务部 / 会计组', positionName: '会计', status: 'approved' },
-  ])
+  const [archives, setArchives] = useState([])
+  const [organizations, setOrganizations] = useState([])
+  const [positions, setPositions] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // const [archives] = useState([
+  //   { id: 1, name: '张三', gender: '男', idCard: '110101199001011234', phone: '13800138000', entryDate: '2024-01-15', organizationPath: '总公司 / 技术部 / 前端组', positionName: '前端工程师', status: 'approved' },
+  //   { id: 2, name: '李四', gender: '男', idCard: '110101199102021235', phone: '13800138001', entryDate: '2024-01-10', organizationPath: '总公司 / 技术部 / 后端组', positionName: '后端工程师', status: 'approved' },
+  //   { id: 3, name: '王五', gender: '女', idCard: '110101199203031236', phone: '13800138002', entryDate: '2024-01-08', organizationPath: '总公司 / 人事部 / 招聘组', positionName: '招聘专员', status: 'approved' },
+  //   { id: 4, name: '赵六', gender: '女', idCard: '110101199304041237', phone: '13800138003', entryDate: '2024-01-05', organizationPath: '总公司 / 财务部 / 会计组', positionName: '会计', status: 'approved' },
+  // ])
 
   const [searchParams, setSearchParams] = useState({
     name: '',
@@ -15,15 +22,77 @@ const ArchiveSearch = () => {
     positionId: ''
   })
 
-  const [filteredArchives, setFilteredArchives] = useState(archives)
+  const [filteredArchives, setFilteredArchives] = useState([])
   const [selectedArchive, setSelectedArchive] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        
+        // 并行加载所有数据
+        const [archivesRes, orgsRes, positionsRes] = await Promise.all([
+          getArchives({ reviewed: true }), // 只获取已复核的档案
+          getOrganizations(),
+          getPositions()
+        ])
+        
+        // 处理档案数据
+        const archivesData = archivesRes.data || []
+        const formattedArchives = archivesData.map(archive => ({
+          id: archive._id,
+          name: archive.name,
+          gender: archive.gender,
+          idCard: archive.id_card,
+          phone: archive.phone,
+          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+          organizationPath: archive.organizationPath || '',
+          positionName: archive.pos_id?.pos_name || '',
+          organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
+          positionId: archive.pos_id?._id,
+          status: archive.reviewed ? 'approved' : 'pending'
+        }))
+        setArchives(formattedArchives)
+        setFilteredArchives(formattedArchives)
+        
+        // 处理机构数据
+        const orgsData = orgsRes.data || []
+        const formattedOrgs = orgsData.map(org => ({
+          id: org._id,
+          name: org.org_name,
+          path: org.fullPath || org.org_name
+        }))
+        setOrganizations(formattedOrgs)
+        
+        // 处理职位数据
+        const positionsData = positionsRes.data || []
+        const formattedPositions = positionsData.map(pos => ({
+          id: pos._id,
+          name: pos.pos_name,
+          organizationId: pos.org_id?._id || pos.org_id
+        }))
+        setPositions(formattedPositions)
+        
+      } catch (error) {
+        console.error('加载数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleSearch = () => {
     const filtered = archives.filter(archive => {
       const matchName = !searchParams.name || archive.name.includes(searchParams.name)
       const matchPhone = !searchParams.phone || archive.phone.includes(searchParams.phone)
-      return matchName && matchPhone
+      const matchOrg = !searchParams.organizationId || archive.organizationId === searchParams.organizationId
+      const matchPos = !searchParams.positionId || archive.positionId === searchParams.positionId
+      return matchName && matchPhone && matchOrg && matchPos
     })
     setFilteredArchives(filtered)
   }
@@ -74,8 +143,9 @@ const ArchiveSearch = () => {
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
               >
                 <option value="">全部</option>
-                <option value="5">前端组</option>
-                <option value="6">后端组</option>
+                {organizations.map(org => (
+                  <option key={org.id} value={org.id}>{org.path}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -86,8 +156,9 @@ const ArchiveSearch = () => {
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
               >
                 <option value="">全部</option>
-                <option value="1">前端工程师</option>
-                <option value="2">后端工程师</option>
+                {positions.map(pos => (
+                  <option key={pos.id} value={pos.id}>{pos.name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -163,7 +234,14 @@ const ArchiveSearch = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredArchives.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan="7" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
+                    </td>
+                  </tr>
+                ) : filteredArchives.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="px-6 py-20 text-center">
                       <div className="text-6xl mb-4">🔍</div>

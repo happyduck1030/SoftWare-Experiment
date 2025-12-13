@@ -1,45 +1,50 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getOrganizationTree, createOrganization, updateOrganization, deleteOrganization } from '../../services/adminService'
 
 const OrganizationSettings = () => {
-  const [organizations, setOrganizations] = useState([
-    {
-      id: 1,
-      name: '总公司',
-      level: 1,
-      parentId: null,
-      children: [
-        {
-          id: 2,
-          name: '技术部',
-          level: 2,
-          parentId: 1,
-          children: [
-            { id: 5, name: '前端组', level: 3, parentId: 2, children: [] },
-            { id: 6, name: '后端组', level: 3, parentId: 2, children: [] },
-          ]
-        },
-        {
-          id: 3,
-          name: '人事部',
-          level: 2,
-          parentId: 1,
-          children: [
-            { id: 7, name: '招聘组', level: 3, parentId: 3, children: [] },
-            { id: 8, name: '培训组', level: 3, parentId: 3, children: [] },
-          ]
-        },
-        {
-          id: 4,
-          name: '财务部',
-          level: 2,
-          parentId: 1,
-          children: [
-            { id: 9, name: '会计组', level: 3, parentId: 4, children: [] },
-          ]
-        },
-      ]
-    }
-  ])
+  const [organizations, setOrganizations] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // const [organizations, setOrganizations] = useState([
+  //   {
+  //     id: 1,
+  //     name: '总公司',
+  //     level: 1,
+  //     parentId: null,
+  //     children: [
+  //       {
+  //         id: 2,
+  //         name: '技术部',
+  //         level: 2,
+  //         parentId: 1,
+  //         children: [
+  //           { id: 5, name: '前端组', level: 3, parentId: 2, children: [] },
+  //           { id: 6, name: '后端组', level: 3, parentId: 2, children: [] },
+  //         ]
+  //       },
+  //       {
+  //         id: 3,
+  //         name: '人事部',
+  //         level: 2,
+  //         parentId: 1,
+  //         children: [
+  //           { id: 7, name: '招聘组', level: 3, parentId: 3, children: [] },
+  //           { id: 8, name: '培训组', level: 3, parentId: 3, children: [] },
+  //         ]
+  //       },
+  //       {
+  //         id: 4,
+  //         name: '财务部',
+  //         level: 2,
+  //         parentId: 1,
+  //         children: [
+  //           { id: 9, name: '会计组', level: 3, parentId: 4, children: [] },
+  //         ]
+  //       },
+  //     ]
+  //   }
+  // ])
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState('add')
@@ -49,8 +54,46 @@ const OrganizationSettings = () => {
     level: 1,
     parentId: null
   })
+  const [submitting, setSubmitting] = useState(false)
 
-  const [expandedNodes, setExpandedNodes] = useState(new Set([1]))
+  const [expandedNodes, setExpandedNodes] = useState(new Set())
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        const response = await getOrganizationTree()
+        const treeData = response.data || []
+        
+        // 递归转换数据格式
+        const transformOrgData = (orgs) => {
+          return orgs.map(org => ({
+            id: org._id,
+            name: org.org_name,
+            level: org.org_level,
+            parentId: org.parent_org_id?._id || org.parent_org_id,
+            children: org.children ? transformOrgData(org.children) : []
+          }))
+        }
+        
+        const formattedOrgs = transformOrgData(treeData)
+        setOrganizations(formattedOrgs)
+        
+        // 默认展开第一级
+        if (formattedOrgs.length > 0) {
+          setExpandedNodes(new Set([formattedOrgs[0].id]))
+        }
+      } catch (error) {
+        console.error('加载机构数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleAdd = (parentOrg = null) => {
     setModalMode('add')
@@ -74,60 +117,104 @@ const OrganizationSettings = () => {
     setIsModalOpen(true)
   }
 
-  const handleDelete = (orgId) => {
+  const handleDelete = async (orgId) => {
     if (window.confirm('确定要删除这个机构吗？删除后其下级机构也将被删除。')) {
-      const deleteRecursive = (orgs, id) => {
-        return orgs.filter(org => org.id !== id).map(org => ({
-          ...org,
-          children: deleteRecursive(org.children, id)
-        }))
+      try {
+        setSubmitting(true)
+        await deleteOrganization(orgId)
+        
+        // 从本地状态中删除
+        const deleteRecursive = (orgs, id) => {
+          return orgs.filter(org => org.id !== id).map(org => ({
+            ...org,
+            children: deleteRecursive(org.children, id)
+          }))
+        }
+        setOrganizations(deleteRecursive(organizations, orgId))
+        alert('机构删除成功')
+      } catch (error) {
+        console.error('删除机构失败:', error)
+        alert(error.message || '机构删除失败')
+      } finally {
+        setSubmitting(false)
       }
-      setOrganizations(deleteRecursive(organizations, orgId))
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim()) {
       alert('请输入机构名称')
       return
     }
 
-    if (modalMode === 'add') {
-      const newOrg = {
-        id: Date.now(),
-        name: formData.name,
-        level: formData.level,
-        parentId: formData.parentId,
-        children: []
-      }
+    try {
+      setSubmitting(true)
+      
+      if (modalMode === 'add') {
+        // 准备提交给后端的数据
+        const createData = {
+          org_name: formData.name,
+          org_level: formData.level,
+          parent_org_id: formData.parentId || null
+        }
+        
+        // 调用API创建机构
+        const response = await createOrganization(createData)
+        const newOrgData = response.data
+        
+        // 转换为前端格式
+        const newOrg = {
+          id: newOrgData._id,
+          name: newOrgData.org_name,
+          level: newOrgData.org_level,
+          parentId: newOrgData.parent_org_id?._id || newOrgData.parent_org_id,
+          children: []
+        }
 
-      if (formData.parentId === null) {
-        setOrganizations([...organizations, newOrg])
+        if (formData.parentId === null) {
+          setOrganizations([...organizations, newOrg])
+        } else {
+          const addToParent = (orgs) => {
+            return orgs.map(org => {
+              if (org.id === formData.parentId) {
+                return { ...org, children: [...org.children, newOrg] }
+              }
+              return { ...org, children: addToParent(org.children) }
+            })
+          }
+          setOrganizations(addToParent(organizations))
+        }
       } else {
-        const addToParent = (orgs) => {
+        // 准备提交给后端的数据
+        const updateData = {
+          org_name: formData.name,
+          manager_emp_id: formData.managerId || null
+        }
+        
+        // 调用API更新机构
+        await updateOrganization(selectedOrg.id, updateData)
+        
+        // 更新本地状态
+        const updateOrg = (orgs) => {
           return orgs.map(org => {
-            if (org.id === formData.parentId) {
-              return { ...org, children: [...org.children, newOrg] }
+            if (org.id === selectedOrg.id) {
+              return { ...org, name: formData.name }
             }
-            return { ...org, children: addToParent(org.children) }
+            return { ...org, children: updateOrg(org.children) }
           })
         }
-        setOrganizations(addToParent(organizations))
+        setOrganizations(updateOrg(organizations))
       }
-    } else {
-      const updateOrg = (orgs) => {
-        return orgs.map(org => {
-          if (org.id === selectedOrg.id) {
-            return { ...org, name: formData.name }
-          }
-          return { ...org, children: updateOrg(org.children) }
-        })
-      }
-      setOrganizations(updateOrg(organizations))
-    }
 
-    setIsModalOpen(false)
-    setFormData({ name: '', level: 1, parentId: null })
+      setIsModalOpen(false)
+      setFormData({ name: '', level: 1, parentId: null })
+      alert(modalMode === 'add' ? '机构创建成功' : '机构更新成功')
+    } catch (error) {
+      console.error('保存机构失败:', error)
+      alert(error.message || '保存失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const toggleExpand = (orgId) => {
@@ -281,7 +368,12 @@ const OrganizationSettings = () => {
             </div>
           </div>
 
-          {organizations.length === 0 ? (
+          {loading ? (
+            <div className="py-20 text-center">
+              <div className="text-6xl mb-4">⏳</div>
+              <p className="text-gray-500">加载中...</p>
+            </div>
+          ) : organizations.length === 0 ? (
             <div className="py-20 text-center">
               <div className="text-6xl mb-4">📭</div>
               <p className="text-gray-500">暂无机构数据，点击上方按钮添加一级机构</p>
@@ -353,9 +445,10 @@ const OrganizationSettings = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150"
               >
-                保存
+                {submitting ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

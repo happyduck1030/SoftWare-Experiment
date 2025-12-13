@@ -1,22 +1,28 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getPositions, createPosition, updatePosition, deletePosition, getOrganizations } from '../../services/adminService'
 
 const PositionSettings = () => {
-  // 模拟机构数据（实际应该从API获取）
-  const [organizations] = useState([
-    { id: 5, name: '前端组', level: 3, path: '总公司 / 技术部 / 前端组' },
-    { id: 6, name: '后端组', level: 3, path: '总公司 / 技术部 / 后端组' },
-    { id: 7, name: '招聘组', level: 3, path: '总公司 / 人事部 / 招聘组' },
-    { id: 8, name: '培训组', level: 3, path: '总公司 / 人事部 / 培训组' },
-    { id: 9, name: '会计组', level: 3, path: '总公司 / 财务部 / 会计组' },
-  ])
+  const [organizations, setOrganizations] = useState([])
+  const [positions, setPositions] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // // 模拟机构数据（实际应该从API获取）
+  // const [organizations] = useState([
+  //   { id: 5, name: '前端组', level: 3, path: '总公司 / 技术部 / 前端组' },
+  //   { id: 6, name: '后端组', level: 3, path: '总公司 / 技术部 / 后端组' },
+  //   { id: 7, name: '招聘组', level: 3, path: '总公司 / 人事部 / 招聘组' },
+  //   { id: 8, name: '培训组', level: 3, path: '总公司 / 人事部 / 培训组' },
+  //   { id: 9, name: '会计组', level: 3, path: '总公司 / 财务部 / 会计组' },
+  // ])
 
-  const [positions, setPositions] = useState([
-    { id: 1, name: '前端工程师', organizationId: 5, organizationName: '前端组', organizationPath: '总公司 / 技术部 / 前端组', createTime: '2024-01-15' },
-    { id: 2, name: '后端工程师', organizationId: 6, organizationName: '后端组', organizationPath: '总公司 / 技术部 / 后端组', createTime: '2024-01-15' },
-    { id: 3, name: '招聘专员', organizationId: 7, organizationName: '招聘组', organizationPath: '总公司 / 人事部 / 招聘组', createTime: '2024-01-16' },
-    { id: 4, name: '培训师', organizationId: 8, organizationName: '培训组', organizationPath: '总公司 / 人事部 / 培训组', createTime: '2024-01-16' },
-    { id: 5, name: '会计', organizationId: 9, organizationName: '会计组', organizationPath: '总公司 / 财务部 / 会计组', createTime: '2024-01-17' },
-  ])
+  // const [positions, setPositions] = useState([
+  //   { id: 1, name: '前端工程师', organizationId: 5, organizationName: '前端组', organizationPath: '总公司 / 技术部 / 前端组', createTime: '2024-01-15' },
+  //   { id: 2, name: '后端工程师', organizationId: 6, organizationName: '后端组', organizationPath: '总公司 / 技术部 / 后端组', createTime: '2024-01-15' },
+  //   { id: 3, name: '招聘专员', organizationId: 7, organizationName: '招聘组', organizationPath: '总公司 / 人事部 / 招聘组', createTime: '2024-01-16' },
+  //   { id: 4, name: '培训师', organizationId: 8, organizationName: '培训组', organizationPath: '总公司 / 人事部 / 培训组', createTime: '2024-01-16' },
+  //   { id: 5, name: '会计', organizationId: 9, organizationName: '会计组', organizationPath: '总公司 / 财务部 / 会计组', createTime: '2024-01-17' },
+  // ])
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState('add')
@@ -25,8 +31,54 @@ const PositionSettings = () => {
     name: '',
     organizationId: null
   })
+  const [submitting, setSubmitting] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        
+        // 并行加载数据
+        const [positionsRes, orgsRes] = await Promise.all([
+          getPositions(),
+          getOrganizations({ level: 3 }) // 只获取三级机构
+        ])
+        
+        // 处理职位数据
+        const positionsData = positionsRes.data || []
+        const formattedPositions = positionsData.map(pos => ({
+          id: pos._id,
+          name: pos.pos_name,
+          organizationId: pos.org_id?._id || pos.org_id,
+          organizationName: pos.org_id?.org_name || '',
+          organizationPath: pos.org_id?.fullPath || pos.org_id?.org_name || '',
+          createTime: pos.created_at ? new Date(pos.created_at).toISOString().split('T')[0] : ''
+        }))
+        setPositions(formattedPositions)
+        
+        // 处理机构数据
+        const orgsData = orgsRes.data || []
+        const formattedOrgs = orgsData.map(org => ({
+          id: org._id,
+          name: org.org_name,
+          level: org.org_level,
+          path: org.fullPath || org.org_name
+        }))
+        setOrganizations(formattedOrgs)
+        
+      } catch (error) {
+        console.error('加载数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleAdd = () => {
     setModalMode('add')
@@ -45,13 +97,23 @@ const PositionSettings = () => {
     setIsModalOpen(true)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('确定要删除这个职位吗？')) {
-      setPositions(positions.filter(p => p.id !== id))
+      try {
+        setSubmitting(true)
+        await deletePosition(id)
+        setPositions(positions.filter(p => p.id !== id))
+        alert('职位删除成功')
+      } catch (error) {
+        console.error('删除职位失败:', error)
+        alert(error.message || '职位删除失败')
+      } finally {
+        setSubmitting(false)
+      }
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim()) {
       alert('请输入职位名称')
       return
@@ -61,28 +123,58 @@ const PositionSettings = () => {
       return
     }
 
-    const org = organizations.find(o => o.id === formData.organizationId)
-
-    if (modalMode === 'add') {
-      const newPosition = {
-        id: Date.now(),
-        name: formData.name,
-        organizationId: formData.organizationId,
-        organizationName: org.name,
-        organizationPath: org.path,
-        createTime: new Date().toISOString().split('T')[0]
+    try {
+      setSubmitting(true)
+      
+      const org = organizations.find(o => o.id === formData.organizationId)
+      
+      if (modalMode === 'add') {
+        // 准备提交给后端的数据
+        const createData = {
+          pos_name: formData.name,
+          org_id: formData.organizationId
+        }
+        
+        // 调用API创建职位
+        const response = await createPosition(createData)
+        const newPositionData = response.data
+        
+        // 转换为前端格式
+        const newPosition = {
+          id: newPositionData._id,
+          name: newPositionData.pos_name,
+          organizationId: newPositionData.org_id?._id || newPositionData.org_id,
+          organizationName: newPositionData.org_id?.org_name || org?.name || '',
+          organizationPath: newPositionData.org_id?.fullPath || org?.path || '',
+          createTime: newPositionData.created_at ? new Date(newPositionData.created_at).toISOString().split('T')[0] : ''
+        }
+        setPositions([...positions, newPosition])
+      } else {
+        // 准备提交给后端的数据
+        const updateData = {
+          pos_name: formData.name
+        }
+        
+        // 调用API更新职位
+        await updatePosition(selectedPosition.id, updateData)
+        
+        // 更新本地状态
+        setPositions(positions.map(p =>
+          p.id === selectedPosition.id
+            ? { ...p, name: formData.name, organizationName: org?.name || '', organizationPath: org?.path || '' }
+            : p
+        ))
       }
-      setPositions([...positions, newPosition])
-    } else {
-      setPositions(positions.map(p => 
-        p.id === selectedPosition.id 
-          ? { ...p, name: formData.name, organizationId: formData.organizationId, organizationName: org.name, organizationPath: org.path }
-          : p
-      ))
-    }
 
-    setIsModalOpen(false)
-    setFormData({ name: '', organizationId: null })
+      setIsModalOpen(false)
+      setFormData({ name: '', organizationId: null })
+      alert(modalMode === 'add' ? '职位创建成功' : '职位更新成功')
+    } catch (error) {
+      console.error('保存职位失败:', error)
+      alert(error.message || '保存失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const filteredPositions = positions.filter(p => 
@@ -178,7 +270,14 @@ const PositionSettings = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredPositions.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
+                    </td>
+                  </tr>
+                ) : filteredPositions.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="px-6 py-20 text-center">
                       <div className="text-6xl mb-4">📭</div>
@@ -258,7 +357,7 @@ const PositionSettings = () => {
                 </label>
                 <select
                   value={formData.organizationId || ''}
-                  onChange={(e) => setFormData({ ...formData, organizationId: Number(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, organizationId: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
                 >
                   <option value="">请选择机构</option>
@@ -294,9 +393,10 @@ const PositionSettings = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
-                保存
+                {submitting ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

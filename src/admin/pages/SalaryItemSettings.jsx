@@ -1,14 +1,19 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getSalaryItems, createSalaryItem, updateSalaryItem, deleteSalaryItem } from '../../services/adminService'
 
 const SalaryItemSettings = () => {
-  const [salaryItems, setSalaryItems] = useState([
-    { id: 1, name: '基本工资', type: 'fixed', description: '员工的基础工资', createTime: '2024-01-10' },
-    { id: 2, name: '绩效奖金', type: 'floating', description: '根据绩效考核发放', createTime: '2024-01-10' },
-    { id: 3, name: '交通补贴', type: 'fixed', description: '固定交通补贴', createTime: '2024-01-11' },
-    { id: 4, name: '餐饮补贴', type: 'fixed', description: '固定餐饮补贴', createTime: '2024-01-11' },
-    { id: 5, name: '加班费', type: 'floating', description: '加班工时补偿', createTime: '2024-01-12' },
-    { id: 6, name: '项目奖金', type: 'floating', description: '项目完成奖励', createTime: '2024-01-12' },
-  ])
+  const [salaryItems, setSalaryItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // const [salaryItems, setSalaryItems] = useState([
+  //   { id: 1, name: '基本工资', type: 'fixed', description: '员工的基础工资', createTime: '2024-01-10' },
+  //   { id: 2, name: '绩效奖金', type: 'floating', description: '根据绩效考核发放', createTime: '2024-01-10' },
+  //   { id: 3, name: '交通补贴', type: 'fixed', description: '固定交通补贴', createTime: '2024-01-11' },
+  //   { id: 4, name: '餐饮补贴', type: 'fixed', description: '固定餐饮补贴', createTime: '2024-01-11' },
+  //   { id: 5, name: '加班费', type: 'floating', description: '加班工时补偿', createTime: '2024-01-12' },
+  //   { id: 6, name: '项目奖金', type: 'floating', description: '项目完成奖励', createTime: '2024-01-12' },
+  // ])
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState('add')
@@ -18,9 +23,38 @@ const SalaryItemSettings = () => {
     type: 'fixed',
     description: ''
   })
+  const [submitting, setSubmitting] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        const response = await getSalaryItems()
+        const itemsData = response.data || []
+        
+        // 处理薪酬项目数据
+        const formattedItems = itemsData.map(item => ({
+          id: item._id,
+          name: item.item_name,
+          type: item.is_active ? 'fixed' : 'floating', // 假设is_active表示是否为固定项
+          description: item.description || '',
+          createTime: item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : ''
+        }))
+        setSalaryItems(formattedItems)
+      } catch (error) {
+        console.error('加载薪酬项目数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleAdd = () => {
     setModalMode('add')
@@ -40,37 +74,80 @@ const SalaryItemSettings = () => {
     setIsModalOpen(true)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('确定要删除这个薪酬项目吗？')) {
-      setSalaryItems(salaryItems.filter(item => item.id !== id))
+      try {
+        setSubmitting(true)
+        await deleteSalaryItem(id)
+        setSalaryItems(salaryItems.filter(item => item.id !== id))
+        alert('薪酬项目删除成功')
+      } catch (error) {
+        console.error('删除薪酬项目失败:', error)
+        alert(error.message || '薪酬项目删除失败')
+      } finally {
+        setSubmitting(false)
+      }
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim()) {
       alert('请输入薪酬项目名称')
       return
     }
 
-    if (modalMode === 'add') {
-      const newItem = {
-        id: Date.now(),
-        name: formData.name,
-        type: formData.type,
-        description: formData.description,
-        createTime: new Date().toISOString().split('T')[0]
+    try {
+      setSubmitting(true)
+      
+      if (modalMode === 'add') {
+        // 准备提交给后端的数据
+        const createData = {
+          item_name: formData.name,
+          description: formData.description,
+          is_active: formData.type === 'fixed' // 假设is_active表示是否为固定项
+        }
+        
+        // 调用API创建薪酬项目
+        const response = await createSalaryItem(createData)
+        const newItemData = response.data
+        
+        // 转换为前端格式
+        const newItem = {
+          id: newItemData._id,
+          name: newItemData.item_name,
+          type: newItemData.is_active ? 'fixed' : 'floating',
+          description: newItemData.description || '',
+          createTime: newItemData.created_at ? new Date(newItemData.created_at).toISOString().split('T')[0] : ''
+        }
+        setSalaryItems([...salaryItems, newItem])
+      } else {
+        // 准备提交给后端的数据
+        const updateData = {
+          item_name: formData.name,
+          description: formData.description,
+          is_active: formData.type === 'fixed'
+        }
+        
+        // 调用API更新薪酬项目
+        await updateSalaryItem(selectedItem.id, updateData)
+        
+        // 更新本地状态
+        setSalaryItems(salaryItems.map(item =>
+          item.id === selectedItem.id
+            ? { ...item, name: formData.name, type: formData.type, description: formData.description }
+            : item
+        ))
       }
-      setSalaryItems([...salaryItems, newItem])
-    } else {
-      setSalaryItems(salaryItems.map(item => 
-        item.id === selectedItem.id 
-          ? { ...item, name: formData.name, type: formData.type, description: formData.description }
-          : item
-      ))
-    }
 
-    setIsModalOpen(false)
-    setFormData({ name: '', type: 'fixed', description: '' })
+      setIsModalOpen(false)
+      setFormData({ name: '', type: 'fixed', description: '' })
+      alert(modalMode === 'add' ? '薪酬项目创建成功' : '薪酬项目更新成功')
+    } catch (error) {
+      console.error('保存薪酬项目失败:', error)
+      alert(error.message || '保存失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const filteredItems = salaryItems.filter(item => {
@@ -180,7 +257,14 @@ const SalaryItemSettings = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
+                    </td>
+                  </tr>
+                ) : filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan="5" className="px-6 py-20 text-center">
                       <div className="text-6xl mb-4">📭</div>
@@ -319,9 +403,10 @@ const SalaryItemSettings = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
-                保存
+                {submitting ? '保存中...' : '保存'}
               </button>
             </div>
           </div>

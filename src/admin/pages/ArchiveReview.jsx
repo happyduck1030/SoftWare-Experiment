@@ -1,46 +1,90 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getArchives, reviewArchive } from '../../services/adminService'
 
 const ArchiveReview = () => {
-  const [archives, setArchives] = useState([
-    { 
-      id: 1, 
-      name: '张三', 
-      gender: '男', 
-      idCard: '110101199001011234', 
-      phone: '13800138000',
-      email: 'zhangsan@example.com',
-      entryDate: '2024-01-15', 
-      organizationPath: '总公司 / 技术部 / 前端组',
-      positionName: '前端工程师',
-      education: '本科',
-      address: '北京市朝阳区xxx街道xxx号',
-      emergencyContact: '李四',
-      emergencyPhone: '13900139000',
-      status: 'pending',
-      createTime: '2024-01-15 10:30:00'
-    },
-    { 
-      id: 2, 
-      name: '王五', 
-      gender: '女', 
-      idCard: '110101199102021235', 
-      phone: '13800138001',
-      email: 'wangwu@example.com',
-      entryDate: '2024-01-16', 
-      organizationPath: '总公司 / 人事部 / 招聘组',
-      positionName: '招聘专员',
-      education: '硕士',
-      address: '北京市海淀区xxx街道xxx号',
-      emergencyContact: '赵六',
-      emergencyPhone: '13900139001',
-      status: 'pending',
-      createTime: '2024-01-16 14:20:00'
+  const [archives, setArchives] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // const [archives, setArchives] = useState([
+  //   {
+  //     id: 1,
+  //     name: '张三',
+  //     gender: '男',
+  //     idCard: '110101199001011234',
+  //     phone: '13800138000',
+  //     email: 'zhangsan@example.com',
+  //     entryDate: '2024-01-15',
+  //     organizationPath: '总公司 / 技术部 / 前端组',
+  //     positionName: '前端工程师',
+  //     education: '本科',
+  //     address: '北京市朝阳区xxx街道xxx号',
+  //     emergencyContact: '李四',
+  //     emergencyPhone: '13900139000',
+  //     status: 'pending',
+  //     createTime: '2024-01-15 10:30:00'
+  //   },
+  //   {
+  //     id: 2,
+  //     name: '王五',
+  //     gender: '女',
+  //     idCard: '110101199102021235',
+  //     phone: '13800138001',
+  //     email: 'wangwu@example.com',
+  //     entryDate: '2024-01-16',
+  //     organizationPath: '总公司 / 人事部 / 招聘组',
+  //     positionName: '招聘专员',
+  //     education: '硕士',
+  //     address: '北京市海淀区xxx街道xxx号',
+  //     emergencyContact: '赵六',
+  //     emergencyPhone: '13900139001',
+  //     status: 'pending',
+  //     createTime: '2024-01-16 14:20:00'
+  //   }
+  // ])
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        const response = await getArchives({ reviewed: false }) // 只获取未复核的档案
+        const archivesData = response.data || []
+        
+        // 处理档案数据
+        const formattedArchives = archivesData.map(archive => ({
+          id: archive._id,
+          name: archive.name,
+          gender: archive.gender,
+          idCard: archive.id_card,
+          phone: archive.phone,
+          email: archive.email,
+          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+          organizationPath: archive.organizationPath || '',
+          positionName: archive.pos_id?.pos_name || '',
+          education: archive.education,
+          address: archive.address,
+          emergencyContact: archive.emergency_contact,
+          emergencyPhone: archive.emergency_phone,
+          status: archive.reviewed ? 'approved' : 'pending',
+          createTime: archive.created_at ? new Date(archive.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
+        }))
+        setArchives(formattedArchives)
+      } catch (error) {
+        console.error('加载待复核档案失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
     }
-  ])
+    
+    loadData()
+  }, [])
 
   const [selectedArchive, setSelectedArchive] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [reviewNote, setReviewNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   const handleViewDetail = (archive) => {
     setSelectedArchive(archive)
@@ -48,23 +92,41 @@ const ArchiveReview = () => {
     setIsDetailOpen(true)
   }
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (window.confirm('确定通过此档案的复核吗？')) {
-      setArchives(archives.filter(a => a.id !== selectedArchive.id))
-      setIsDetailOpen(false)
-      alert('复核通过')
+      try {
+        setSubmitting(true)
+        await reviewArchive(selectedArchive.id, true)
+        setArchives(archives.filter(a => a.id !== selectedArchive.id))
+        setIsDetailOpen(false)
+        alert('复核通过')
+      } catch (error) {
+        console.error('复核通过失败:', error)
+        alert(error.message || '复核通过失败')
+      } finally {
+        setSubmitting(false)
+      }
     }
   }
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (!reviewNote.trim()) {
       alert('请填写驳回原因')
       return
     }
     if (window.confirm('确定驳回此档案吗？')) {
-      setArchives(archives.filter(a => a.id !== selectedArchive.id))
-      setIsDetailOpen(false)
-      alert('已驳回')
+      try {
+        setSubmitting(true)
+        await reviewArchive(selectedArchive.id, false)
+        setArchives(archives.filter(a => a.id !== selectedArchive.id))
+        setIsDetailOpen(false)
+        alert('已驳回')
+      } catch (error) {
+        console.error('复核驳回失败:', error)
+        alert(error.message || '复核驳回失败')
+      } finally {
+        setSubmitting(false)
+      }
     }
   }
 
@@ -134,7 +196,14 @@ const ArchiveReview = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {archives.length === 0 ? (
+                {loading ? (
+                  <tr>
+                    <td colSpan="7" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
+                    </td>
+                  </tr>
+                ) : archives.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="px-6 py-20 text-center">
                       <div className="text-6xl mb-4">✓</div>
@@ -291,15 +360,17 @@ const ArchiveReview = () => {
               </button>
               <button
                 onClick={handleReject}
-                className="flex-1 px-4 py-3 bg-white border border-red-300 text-red-600 font-medium rounded-xl hover:bg-red-50 transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-white border border-red-300 text-red-600 font-medium rounded-xl hover:bg-red-50 disabled:bg-gray-100 disabled:text-gray-400 transition-colors duration-150 cursor-pointer"
               >
                 驳回
               </button>
               <button
                 onClick={handleApprove}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
-                通过
+                {submitting ? '处理中...' : '通过'}
               </button>
             </div>
           </div>

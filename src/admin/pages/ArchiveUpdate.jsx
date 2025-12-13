@@ -1,27 +1,95 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { getArchives, updateArchive, getOrganizations, getPositions } from '../../services/adminService'
 
 const ArchiveUpdate = () => {
-  const [archives, setArchives] = useState([
-    { id: 1, name: '张三', gender: '男', idCard: '110101199001011234', phone: '13800138000', email: 'zhangsan@example.com', entryDate: '2024-01-15', organizationId: 5, organizationPath: '总公司 / 技术部 / 前端组', positionId: 1, positionName: '前端工程师', education: '本科' },
-    { id: 2, name: '李四', gender: '男', idCard: '110101199102021235', phone: '13800138001', email: 'lisi@example.com', entryDate: '2024-01-10', organizationId: 6, organizationPath: '总公司 / 技术部 / 后端组', positionId: 2, positionName: '后端工程师', education: '硕士' },
-  ])
+  const [archives, setArchives] = useState([])
+  const [organizations, setOrganizations] = useState([])
+  const [positions, setPositions] = useState([])
+  const [loading, setLoading] = useState(true)
+  
+  // 假数据保留作为注释参考
+  // const [archives, setArchives] = useState([
+  //   { id: 1, name: '张三', gender: '男', idCard: '110101199001011234', phone: '13800138000', email: 'zhangsan@example.com', entryDate: '2024-01-15', organizationId: 5, organizationPath: '总公司 / 技术部 / 前端组', positionId: 1, positionName: '前端工程师', education: '本科' },
+  //   { id: 2, name: '李四', gender: '男', idCard: '110101199102021235', phone: '13800138001', email: 'lisi@example.com', entryDate: '2024-01-10', organizationId: 6, organizationPath: '总公司 / 技术部 / 后端组', positionId: 2, positionName: '后端工程师', education: '硕士' },
+  // ])
 
-  const [organizations] = useState([
-    { id: 5, name: '前端组', path: '总公司 / 技术部 / 前端组' },
-    { id: 6, name: '后端组', path: '总公司 / 技术部 / 后端组' },
-    { id: 7, name: '招聘组', path: '总公司 / 人事部 / 招聘组' },
-  ])
+  // const [organizations] = useState([
+  //   { id: 5, name: '前端组', path: '总公司 / 技术部 / 前端组' },
+  //   { id: 6, name: '后端组', path: '总公司 / 技术部 / 后端组' },
+  //   { id: 7, name: '招聘组', path: '总公司 / 人事部 / 招聘组' },
+  // ])
 
-  const [positions] = useState([
-    { id: 1, name: '前端工程师', organizationId: 5 },
-    { id: 2, name: '后端工程师', organizationId: 6 },
-    { id: 3, name: '招聘专员', organizationId: 7 },
-  ])
+  // const [positions] = useState([
+  //   { id: 1, name: '前端工程师', organizationId: 5 },
+  //   { id: 2, name: '后端工程师', organizationId: 6 },
+  //   { id: 3, name: '招聘专员', organizationId: 7 },
+  // ])
 
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedArchive, setSelectedArchive] = useState(null)
   const [formData, setFormData] = useState({})
   const [availablePositions, setAvailablePositions] = useState([])
+  const [submitting, setSubmitting] = useState(false)
+
+  // 加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true)
+        
+        // 并行加载所有数据
+        const [archivesRes, orgsRes, positionsRes] = await Promise.all([
+          getArchives(),
+          getOrganizations(),
+          getPositions()
+        ])
+        
+        // 处理档案数据
+        const archivesData = archivesRes.data || []
+        const formattedArchives = archivesData.map(archive => ({
+          id: archive._id,
+          name: archive.name,
+          gender: archive.gender,
+          idCard: archive.id_card,
+          phone: archive.phone,
+          email: archive.email,
+          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+          organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
+          organizationPath: archive.organizationPath || '',
+          positionId: archive.pos_id?._id,
+          positionName: archive.pos_id?.pos_name || '',
+          education: archive.education
+        }))
+        setArchives(formattedArchives)
+        
+        // 处理机构数据
+        const orgsData = orgsRes.data || []
+        const formattedOrgs = orgsData.map(org => ({
+          id: org._id,
+          name: org.org_name,
+          path: org.fullPath || org.org_name // 如果后端没有fullPath，使用org_name
+        }))
+        setOrganizations(formattedOrgs)
+        
+        // 处理职位数据
+        const positionsData = positionsRes.data || []
+        const formattedPositions = positionsData.map(pos => ({
+          id: pos._id,
+          name: pos.pos_name,
+          organizationId: pos.org_id?._id || pos.org_id
+        }))
+        setPositions(formattedPositions)
+        
+      } catch (error) {
+        console.error('加载数据失败:', error)
+        // 可以在这里添加错误提示
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [])
 
   const handleEdit = (archive) => {
     setSelectedArchive(archive)
@@ -32,27 +100,51 @@ const ArchiveUpdate = () => {
   }
 
   const handleOrganizationChange = (orgId) => {
-    const filtered = positions.filter(p => p.organizationId === Number(orgId))
+    const filtered = positions.filter(p => p.organizationId === orgId)
     setAvailablePositions(filtered)
-    setFormData({ ...formData, organizationId: Number(orgId), positionId: null })
+    setFormData({ ...formData, organizationId: orgId, positionId: null })
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim() || !formData.phone.trim()) {
       alert('请填写必填项')
       return
     }
 
-    const org = organizations.find(o => o.id === formData.organizationId)
-    const pos = positions.find(p => p.id === formData.positionId)
-
-    setArchives(archives.map(a => 
-      a.id === selectedArchive.id 
-        ? { ...formData, organizationPath: org.path, positionName: pos.name }
-        : a
-    ))
-    setIsModalOpen(false)
-    alert('档案更新成功，需等待复核')
+    try {
+      setSubmitting(true)
+      
+      // 准备提交给后端的数据
+      const updateData = {
+        name: formData.name,
+        gender: formData.gender,
+        phone: formData.phone,
+        email: formData.email,
+        pos_id: formData.positionId,
+        education: formData.education
+      }
+      
+      // 调用API更新档案
+      await updateArchive(selectedArchive.id, updateData)
+      
+      // 更新本地数据
+      const org = organizations.find(o => o.id === formData.organizationId)
+      const pos = positions.find(p => p.id === formData.positionId)
+      
+      setArchives(archives.map(a =>
+        a.id === selectedArchive.id
+          ? { ...formData, organizationPath: org?.path || '', positionName: pos?.name || '' }
+          : a
+      ))
+      
+      setIsModalOpen(false)
+      alert('档案更新成功，需等待复核')
+    } catch (error) {
+      console.error('更新档案失败:', error)
+      alert(error.message || '档案更新失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -120,32 +212,48 @@ const ArchiveUpdate = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {archives.map((archive) => (
-                  <tr key={archive.id} className="hover:bg-gray-50 transition-colors duration-150">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center text-sm font-medium text-[#59168b]">
-                          {archive.name.charAt(0)}
-                        </div>
-                        <span className="font-medium text-gray-900">{archive.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-700">{archive.gender}</td>
-                    <td className="px-6 py-4 text-gray-700">{archive.phone}</td>
-                    <td className="px-6 py-4 text-gray-700">{archive.positionName}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{archive.organizationPath}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center">
-                        <button
-                          onClick={() => handleEdit(archive)}
-                          className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-150 cursor-pointer"
-                        >
-                          变更
-                        </button>
-                      </div>
+                {loading ? (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">⏳</div>
+                      <p className="text-gray-500">加载中...</p>
                     </td>
                   </tr>
-                ))}
+                ) : archives.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="px-6 py-20 text-center">
+                      <div className="text-6xl mb-4">📭</div>
+                      <p className="text-gray-500">暂无档案数据</p>
+                    </td>
+                  </tr>
+                ) : (
+                  archives.map((archive) => (
+                    <tr key={archive.id} className="hover:bg-gray-50 transition-colors duration-150">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center text-sm font-medium text-[#59168b]">
+                            {archive.name.charAt(0)}
+                          </div>
+                          <span className="font-medium text-gray-900">{archive.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-700">{archive.gender}</td>
+                      <td className="px-6 py-4 text-gray-700">{archive.phone}</td>
+                      <td className="px-6 py-4 text-gray-700">{archive.positionName}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{archive.organizationPath}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center">
+                          <button
+                            onClick={() => handleEdit(archive)}
+                            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-150 cursor-pointer"
+                          >
+                            变更
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -213,10 +321,11 @@ const ArchiveUpdate = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">所属机构 *</label>
                   <select
-                    value={formData.organizationId}
+                    value={formData.organizationId || ''}
                     onChange={(e) => handleOrganizationChange(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
                   >
+                    <option value="">请选择机构</option>
                     {organizations.map(org => (
                       <option key={org.id} value={org.id}>{org.path}</option>
                     ))}
@@ -225,10 +334,11 @@ const ArchiveUpdate = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">职位 *</label>
                   <select
-                    value={formData.positionId}
-                    onChange={(e) => setFormData({ ...formData, positionId: Number(e.target.value) })}
+                    value={formData.positionId || ''}
+                    onChange={(e) => setFormData({ ...formData, positionId: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
                   >
+                    <option value="">请选择职位</option>
                     {availablePositions.map(pos => (
                       <option key={pos.id} value={pos.id}>{pos.name}</option>
                     ))}
@@ -256,9 +366,10 @@ const ArchiveUpdate = () => {
               </button>
               <button
                 onClick={handleSave}
-                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+                disabled={submitting}
+                className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
-                提交变更
+                {submitting ? '提交中...' : '提交变更'}
               </button>
             </div>
           </div>
