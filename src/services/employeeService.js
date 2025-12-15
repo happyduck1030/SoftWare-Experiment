@@ -28,6 +28,12 @@ export const getOrganizationInfo = async () => {
   return response;
 };
 
+// 获取组织树（员工权限）
+export const getOrganizationTreeEmployee = async () => {
+  const response = await api.get('/employee/organizations/tree');
+  return response;
+};
+
 // 获取下属员工列表（仅机构负责人）
 export const getSubordinates = async () => {
   const response = await api.get('/employee/subordinates');
@@ -51,4 +57,5 @@ export const getSubordinateSalary = async (id) => {
   const response = await api.get(`/employee/subordinates/${id}/salary`);
   return response;
 };
+
 

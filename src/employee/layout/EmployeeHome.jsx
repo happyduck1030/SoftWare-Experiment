@@ -5,6 +5,7 @@ import EmployeeArchive from '../pages/EmployeeArchive'
 import EmployeeSalary from '../pages/EmployeeSalary'
 import OrganizationInfo from '../pages/OrganizationInfo'
 import SubordinateManagement from '../pages/SubordinateManagement'
+import Pixel404 from '../pages/Pixel404'
 
 const EmployeeHome = () => {
   const location = useLocation()
@@ -154,9 +155,11 @@ const EmployeeHome = () => {
               <Route path="/archive" element={<EmployeeArchive />} />
               <Route path="/organization" element={<OrganizationInfo />} />
               <Route path="/salary" element={<EmployeeSalary />} />
-              {userInfo.isBoss && (
-                <Route path="/subordinates" element={<SubordinateManagement />} />
-              )}
+              <Route
+                path="/subordinates"
+                element={userInfo.isBoss ? <SubordinateManagement /> : <Pixel404 reason="forbidden" />}
+              />
+              <Route path="*" element={<Pixel404 />} />
             </Routes>
           </div>
         </div>

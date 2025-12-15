@@ -1,8 +1,54 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { getPositions, createPosition, updatePosition, deletePosition, getOrganizations } from '../../services/adminService'
 
 const PositionSettings = () => {
+  const Dropdown = ({ label, value, onChange, options, placeholder = '请选择', disabled = false }) => {
+    const [open, setOpen] = useState(false)
+    const selected = options.find(o => o.value === value)
+    const display = selected ? selected.label : placeholder
+    const toggle = () => !disabled && setOpen(prev => !prev)
+
+    return (
+      <div className="space-y-2">
+        {label && <label className="block text-sm font-medium text-gray-900">{label}</label>}
+        <div className={`relative ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>
+          <button
+            type="button"
+            onClick={toggle}
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent bg-white"
+          >
+            <span className={selected ? 'text-gray-900' : 'text-gray-400'}>{display}</span>
+            <span className="text-gray-400">▾</span>
+          </button>
+          {open && (
+            <div className="absolute z-50 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-auto">
+              {options.length === 0 ? (
+                <div className="px-4 py-3 text-sm text-gray-500">暂无数据</div>
+              ) : (
+                options.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { onChange(opt.value); setOpen(false) }}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${value === opt.value ? 'bg-[#59168b]/10 text-[#59168b]' : 'text-gray-700'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const [organizations, setOrganizations] = useState([])
+  const orgMap = useMemo(() => {
+    const m = {}
+    organizations.forEach(o => { m[o.id] = o })
+    return m
+  }, [organizations])
   const [positions, setPositions] = useState([])
   const [loading, setLoading] = useState(true)
   
@@ -29,11 +75,15 @@ const PositionSettings = () => {
   const [selectedPosition, setSelectedPosition] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
-    organizationId: null
+    orgLevel1Id: '',
+    orgLevel2Id: '',
+    orgLevel3Id: '',
+    isBoss: false
   })
   const [submitting, setSubmitting] = useState(false)
 
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedFilter, setSelectedFilter] = useState({ org1: '', org2: '', org3: '' })
 
   // 加载数据
   useEffect(() => {
@@ -44,7 +94,7 @@ const PositionSettings = () => {
         // 并行加载数据
         const [positionsRes, orgsRes] = await Promise.all([
           getPositions(),
-          getOrganizations({ level: 3 }) // 只获取三级机构
+          getOrganizations() // 获取全部机构，用于分级选择
         ])
         
         // 处理职位数据
@@ -55,18 +105,23 @@ const PositionSettings = () => {
           organizationId: pos.org_id?._id || pos.org_id,
           organizationName: pos.org_id?.org_name || '',
           organizationPath: pos.org_id?.fullPath || pos.org_id?.org_name || '',
-          createTime: pos.created_at ? new Date(pos.created_at).toISOString().split('T')[0] : ''
+          createTime: pos.created_at ? new Date(pos.created_at).toISOString().split('T')[0] : '',
+          isBoss: !!pos.is_boss
         }))
         setPositions(formattedPositions)
         
         // 处理机构数据
         const orgsData = orgsRes.data || []
-        const formattedOrgs = orgsData.map(org => ({
-          id: org._id,
-          name: org.org_name,
-          level: org.org_level,
-          path: org.fullPath || org.org_name
-        }))
+        const formattedOrgs = orgsData.map(org => {
+          const parent = org.parent_org_id?._id || org.parent_org_id || org.parent_id?._id || org.parent_id || org.parent || org.parentId || ''
+          return {
+            id: String(org._id),
+            name: org.org_name,
+            level: org.org_level,
+            path: org.fullPath || org.org_name,
+            parentId: parent ? String(parent) : ''
+          }
+        })
         setOrganizations(formattedOrgs)
         
       } catch (error) {
@@ -83,16 +138,28 @@ const PositionSettings = () => {
   const handleAdd = () => {
     setModalMode('add')
     setSelectedPosition(null)
-    setFormData({ name: '', organizationId: null })
+    setFormData({ name: '', orgLevel1Id: '', orgLevel2Id: '', orgLevel3Id: '', isBoss: false })
     setIsModalOpen(true)
   }
 
   const handleEdit = (position) => {
     setModalMode('edit')
     setSelectedPosition(position)
+    // 根据三级机构回溯一级二级
+    const chain = (() => {
+      const lvl3 = orgMap[position.organizationId]
+      const lvl2 = lvl3 ? orgMap[lvl3.parentId] : undefined
+      const lvl1 = lvl2 ? orgMap[lvl2.parentId] : undefined
+      return {
+        orgLevel3Id: position.organizationId || '',
+        orgLevel2Id: lvl2?.id || '',
+        orgLevel1Id: lvl1?.id || ''
+      }
+    })()
     setFormData({
       name: position.name,
-      organizationId: position.organizationId
+      ...chain,
+      isBoss: !!position.isBoss
     })
     setIsModalOpen(true)
   }
@@ -118,21 +185,22 @@ const PositionSettings = () => {
       alert('请输入职位名称')
       return
     }
-    if (!formData.organizationId) {
-      alert('请选择所属机构')
+    if (!formData.orgLevel3Id) {
+      alert('请选择三级机构')
       return
     }
 
     try {
       setSubmitting(true)
       
-      const org = organizations.find(o => o.id === formData.organizationId)
+      const org = organizations.find(o => o.id === formData.orgLevel3Id)
       
       if (modalMode === 'add') {
         // 准备提交给后端的数据
         const createData = {
           pos_name: formData.name,
-          org_id: formData.organizationId
+          org_id: formData.orgLevel3Id,
+          is_boss: formData.isBoss
         }
         
         // 调用API创建职位
@@ -146,13 +214,15 @@ const PositionSettings = () => {
           organizationId: newPositionData.org_id?._id || newPositionData.org_id,
           organizationName: newPositionData.org_id?.org_name || org?.name || '',
           organizationPath: newPositionData.org_id?.fullPath || org?.path || '',
-          createTime: newPositionData.created_at ? new Date(newPositionData.created_at).toISOString().split('T')[0] : ''
+          createTime: newPositionData.created_at ? new Date(newPositionData.created_at).toISOString().split('T')[0] : '',
+          isBoss: newPositionData.is_boss || formData.isBoss
         }
         setPositions([...positions, newPosition])
       } else {
         // 准备提交给后端的数据
         const updateData = {
-          pos_name: formData.name
+          pos_name: formData.name,
+          is_boss: formData.isBoss
         }
         
         // 调用API更新职位
@@ -161,7 +231,14 @@ const PositionSettings = () => {
         // 更新本地状态
         setPositions(positions.map(p =>
           p.id === selectedPosition.id
-            ? { ...p, name: formData.name, organizationName: org?.name || '', organizationPath: org?.path || '' }
+            ? {
+                ...p,
+                name: formData.name,
+                organizationName: org?.name || '',
+                organizationPath: org?.path || '',
+                organizationId: formData.orgLevel3Id || p.organizationId,
+                isBoss: formData.isBoss
+              }
             : p
         ))
       }
@@ -177,10 +254,51 @@ const PositionSettings = () => {
     }
   }
 
-  const filteredPositions = positions.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.organizationPath.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const asStr = useCallback((v) => (v === undefined || v === null ? '' : String(v)), [])
+
+  const level1All = useMemo(() => organizations.filter(o => o.level === 1), [organizations])
+  const level2All = useMemo(() => organizations.filter(o => o.level === 2), [organizations])
+  const level3All = useMemo(() => organizations.filter(o => o.level === 3), [organizations])
+
+  const level1Orgs = level1All
+  const level2Orgs = useMemo(() => {
+    if (!formData.orgLevel1Id) return []
+    return level2All.filter(o => asStr(o.parentId) === asStr(formData.orgLevel1Id))
+  }, [level2All, formData.orgLevel1Id, asStr])
+  const level3Orgs = useMemo(() => {
+    if (!formData.orgLevel2Id) return []
+    return level3All.filter(o => asStr(o.parentId) === asStr(formData.orgLevel2Id))
+  }, [level3All, formData.orgLevel2Id, asStr])
+
+  const filterLevel2 = useMemo(() => {
+    if (!selectedFilter.org1) return []
+    return level2All.filter(o => asStr(o.parentId) === asStr(selectedFilter.org1))
+  }, [level2All, selectedFilter, asStr])
+  const filterLevel3 = useMemo(() => {
+    if (!selectedFilter.org2) return []
+    return level3All.filter(o => asStr(o.parentId) === asStr(selectedFilter.org2))
+  }, [level3All, selectedFilter, asStr])
+
+  const isUnderOrg = (orgId, targetId) => {
+    let cur = orgMap[asStr(orgId)]
+    while (cur) {
+      if (asStr(cur.id) === asStr(targetId)) return true
+      cur = orgMap[asStr(cur.parentId)]
+    }
+    return false
+  }
+
+  const filteredPositions = positions
+    .filter(p => {
+      if (selectedFilter.org3) return asStr(p.organizationId) === asStr(selectedFilter.org3)
+      if (selectedFilter.org2) return isUnderOrg(p.organizationId, selectedFilter.org2)
+      if (selectedFilter.org1) return isUnderOrg(p.organizationId, selectedFilter.org1)
+      return true
+    })
+    .filter(p =>
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.organizationPath || '').toLowerCase().includes(searchTerm.toLowerCase())
+    )
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
@@ -212,6 +330,39 @@ const PositionSettings = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150"
             />
+          </div>
+        </div>
+
+        {/* 机构筛选级联（shadcn 风格下拉） */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-gray-900">机构筛选</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Dropdown
+                label="一级机构"
+                value={selectedFilter.org1}
+                onChange={(val) => setSelectedFilter({ org1: val, org2: '', org3: '' })}
+                options={[{ value: '', label: '全部' }, ...level1Orgs.map(org => ({ value: org.id, label: org.name }))]}
+              />
+            </div>
+            <div>
+              <Dropdown
+                label="二级机构"
+                value={selectedFilter.org2}
+                onChange={(val) => setSelectedFilter(prev => ({ ...prev, org2: val, org3: '' }))}
+                options={[{ value: '', label: '全部' }, ...filterLevel2.map(org => ({ value: org.id, label: org.name }))]}
+                disabled={!selectedFilter.org1}
+              />
+            </div>
+            <div>
+              <Dropdown
+                label="三级机构"
+                value={selectedFilter.org3}
+                onChange={(val) => setSelectedFilter(prev => ({ ...prev, org3: val }))}
+                options={[{ value: '', label: '全部' }, ...filterLevel3.map(org => ({ value: org.id, label: org.name }))]}
+                disabled={!selectedFilter.org2}
+              />
+            </div>
           </div>
         </div>
 
@@ -265,6 +416,7 @@ const PositionSettings = () => {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">职位名称</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">所属机构</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">机构路径</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">负责人</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">创建时间</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                 </tr>
@@ -297,6 +449,7 @@ const PositionSettings = () => {
                       </td>
                       <td className="px-6 py-4 text-gray-700">{position.organizationName}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{position.organizationPath}</td>
+                      <td className="px-6 py-4 text-gray-700">{position.isBoss ? '是' : '否'}</td>
                       <td className="px-6 py-4 text-gray-700">{position.createTime}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center space-x-2">
@@ -351,23 +504,44 @@ const PositionSettings = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">
-                  所属机构（三级机构）
-                </label>
-                <select
-                  value={formData.organizationId || ''}
-                  onChange={(e) => setFormData({ ...formData, organizationId: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
-                >
-                  <option value="">请选择机构</option>
-                  {organizations.map(org => (
-                    <option key={org.id} value={org.id}>
-                      {org.path}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <Dropdown
+                    label="一级机构"
+                    value={formData.orgLevel1Id}
+                    onChange={(val) => setFormData({ ...formData, orgLevel1Id: val, orgLevel2Id: '', orgLevel3Id: '' })}
+                    options={[{ value: '', label: '请选择一级机构' }, ...level1Orgs.map(org => ({ value: org.id, label: org.name }))]}
+                  />
+                </div>
+                <div>
+                  <Dropdown
+                    label="二级机构"
+                    value={formData.orgLevel2Id}
+                    onChange={(val) => setFormData({ ...formData, orgLevel2Id: val, orgLevel3Id: '' })}
+                    options={[{ value: '', label: '请选择二级机构' }, ...level2Orgs.map(org => ({ value: org.id, label: org.name }))]}
+                    disabled={!formData.orgLevel1Id}
+                  />
+                </div>
+                <div>
+                  <Dropdown
+                    label="三级机构"
+                    value={formData.orgLevel3Id}
+                    onChange={(val) => setFormData({ ...formData, orgLevel3Id: val })}
+                    options={[{ value: '', label: '请选择三级机构' }, ...level3Orgs.map(org => ({ value: org.id, label: org.name }))]}
+                    disabled={!formData.orgLevel2Id}
+                  />
+                </div>
               </div>
+
+              <label className="flex items-center space-x-3 text-sm font-medium text-gray-900">
+                <input
+                  type="checkbox"
+                  checked={formData.isBoss}
+                  onChange={(e) => setFormData({ ...formData, isBoss: e.target.checked })}
+                  className="w-4 h-4 text-[#59168b] border-gray-300 rounded focus:ring-[#59168b]"
+                />
+                <span>设为机构负责人（Boss）</span>
+              </label>
 
               <div className="bg-gray-50 rounded-xl p-4">
                 <div className="flex items-start space-x-3">

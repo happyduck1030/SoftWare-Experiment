@@ -38,3 +38,4 @@ salaryItemSchema.index({ is_active: 1 });
 
 export default mongoose.model('SalaryItem', salaryItemSchema);
 
+

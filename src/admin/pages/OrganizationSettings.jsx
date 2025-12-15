@@ -64,6 +64,7 @@ const OrganizationSettings = () => {
       try {
         setLoading(true)
         const response = await getOrganizationTree()
+        console.log('获取组织架构数据成功:', response.data)
         const treeData = response.data || []
         
         // 递归转换数据格式
@@ -76,8 +77,9 @@ const OrganizationSettings = () => {
             children: org.children ? transformOrgData(org.children) : []
           }))
         }
-        
+   
         const formattedOrgs = transformOrgData(treeData)
+        console.log('转换后的数据:', transformOrgData)
         setOrganizations(formattedOrgs)
         
         // 默认展开第一级

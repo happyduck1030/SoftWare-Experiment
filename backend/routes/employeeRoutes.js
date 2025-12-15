@@ -4,6 +4,7 @@ import {
   updateMyArchive,
   getMySalary,
   getOrganizationInfo,
+  getOrganizationTreeForEmployee,
   getSubordinates,
   getSubordinateDetail,
   updateSubordinate,
@@ -21,6 +22,7 @@ router.get('/archive', getMyArchive);
 router.put('/archive', updateMyArchive);
 router.get('/salary', getMySalary);
 router.get('/organization', getOrganizationInfo);
+router.get('/organizations/tree', getOrganizationTreeForEmployee);
 
 // 下属管理（机构负责人功能）
 router.get('/subordinates', getSubordinates);
@@ -29,4 +31,5 @@ router.put('/subordinates/:id', updateSubordinate);
 router.get('/subordinates/:id/salary', getSubordinateSalary);
 
 export default router;
+
 

@@ -4,6 +4,22 @@ import Position from '../models/Position.js';
 import SalaryPayment from '../models/SalaryPayment.js';
 import { successResponse, errorResponse } from '../utils/responseFormatter.js';
 
+// 递归构建组织树
+const buildOrgTree = (orgs, parentId = null) => {
+  return orgs
+    .filter(org => {
+      if (parentId === null) return !org.parent_org_id;
+      return org.parent_org_id && org.parent_org_id.toString() === parentId.toString();
+    })
+    .map(org => ({
+      _id: org._id,
+      org_name: org.org_name,
+      org_level: org.org_level,
+      parent_org_id: org.parent_org_id,
+      children: buildOrgTree(orgs, org._id)
+    }));
+};
+
 // @desc    获取当前员工的档案信息
 // @route   GET /api/employee/archive
 // @access  Private (Employee)
@@ -55,6 +71,20 @@ export const getMyArchive = async (req, res) => {
   }
 };
 
+// @desc    员工可查看组织树（boss 也可用）
+// @route   GET /api/employee/organizations/tree
+// @access  Private (Employee)
+export const getOrganizationTreeForEmployee = async (req, res) => {
+  try {
+    const orgs = await Organization.find({ is_deleted: false }).lean();
+    const tree = buildOrgTree(orgs);
+    successResponse(res, tree, '获取组织树成功');
+  } catch (error) {
+    console.error('Get org tree (employee) error:', error);
+    errorResponse(res, error.message || '获取组织架构失败', 500);
+  }
+};
+
 // @desc    更新当前员工的可编辑信息
 // @route   PUT /api/employee/archive
 // @access  Private (Employee)
@@ -102,33 +132,50 @@ export const getMySalary = async (req, res) => {
 
     const { startMonth, endMonth } = req.query;
 
-    // 获取薪酬记录
+    // 获取薪酬记录（包含奖金/扣款标签）
     const payments = await SalaryPayment.getEmployeePayments(
       req.user.emp_id._id,
       startMonth,
       endMonth
     );
 
-    // 按月份分组
+    // 按月份分组并计算基薪/奖金/扣款/实发
     const groupedByMonth = {};
-    payments.forEach(payment => {
+    payments.forEach((payment) => {
       const monthKey = payment.pay_month.toISOString().substring(0, 7);
       if (!groupedByMonth[monthKey]) {
         groupedByMonth[monthKey] = {
           month: monthKey,
           paymentDate: payment.pay_month,
           items: [],
+          baseAmount: 0,
+          bonusAmount: 0,
+          deductionAmount: 0,
           total: 0
         };
       }
+
+      const isBonus = payment.is_bonus === true;
+      const isDeduction = payment.is_deduction === true;
+      const amount = Number(payment.amount) || 0;
+
       groupedByMonth[monthKey].items.push({
-        name: payment.item_id.item_name,
-        amount: payment.amount
+        name: payment.item_id?.item_name || '薪酬项目',
+        amount,
+        isBonus,
+        isDeduction
       });
-      groupedByMonth[monthKey].total += payment.amount;
+
+      if (isBonus) groupedByMonth[monthKey].bonusAmount += amount;
+      else if (isDeduction) groupedByMonth[monthKey].deductionAmount += amount;
+      else groupedByMonth[monthKey].baseAmount += amount;
+
+      groupedByMonth[monthKey].total = groupedByMonth[monthKey].baseAmount
+        + groupedByMonth[monthKey].bonusAmount
+        - groupedByMonth[monthKey].deductionAmount;
     });
 
-    const salaryRecords = Object.values(groupedByMonth).sort((a, b) => 
+    const salaryRecords = Object.values(groupedByMonth).sort((a, b) =>
       new Date(b.month) - new Date(a.month)
     );
 
@@ -162,7 +209,10 @@ export const getOrganizationInfo = async (req, res) => {
     const level3Org = await Organization.findById(employee.pos_id.org_id)
       .populate('manager_emp_id', 'name phone email');
     
-    let organizationPath = { level3: level3Org.org_name };
+    let organizationPath = {
+      level3: level3Org.org_name,
+      level3Id: level3Org._id
+    };
     let supervisors = {};
 
     // 获取三级机构负责人
@@ -183,6 +233,7 @@ export const getOrganizationInfo = async (req, res) => {
       
       if (level2Org) {
         organizationPath.level2 = level2Org.org_name;
+        organizationPath.level2Id = level2Org._id;
         
         if (level2Org.manager_emp_id) {
           const pos = await Position.findOne({ _id: level2Org.manager_emp_id.pos_id });
@@ -202,6 +253,7 @@ export const getOrganizationInfo = async (req, res) => {
       
       if (level1Org) {
         organizationPath.level1 = level1Org.org_name;
+        organizationPath.level1Id = level1Org._id;
         
         if (level1Org.manager_emp_id) {
           const pos = await Position.findOne({ _id: level1Org.manager_emp_id.pos_id });
@@ -423,37 +475,54 @@ export const getSubordinateSalary = async (req, res) => {
       return errorResponse(res, '该员工不属于您管理的机构', 403);
     }
 
-    // 获取薪酬汇总（只显示总额，不显示明细）
-    const salaryRecords = await SalaryPayment.aggregate([
-      {
-        $match: {
-          emp_id: employee._id,
-          reviewed: true,
-          is_deleted: false
-        }
-      },
-      {
-        $group: {
-          _id: '$pay_month',
-          total: { $sum: '$amount' }
-        }
-      },
-      {
-        $sort: { _id: -1 }
-      },
-      {
-        $limit: 12 // 只返回最近12个月
-      },
-      {
-        $project: {
-          month: {
-            $dateToString: { format: '%Y-%m', date: '$_id' }
-          },
-          total: 1,
-          _id: 0
-        }
+    // 获取最近12个月的薪酬明细（含项目/奖金/扣款）
+    const payments = await SalaryPayment.find({
+      emp_id: employee._id,
+      reviewed: true,
+      is_deleted: false
+    })
+      .sort({ pay_month: -1 })
+      .populate('item_id', 'item_name')
+      .limit(500); // 足够覆盖12个月
+
+    const grouped = {};
+    payments.forEach((payment) => {
+      const monthKey = payment.pay_month.toISOString().substring(0, 7);
+      if (!grouped[monthKey]) {
+        grouped[monthKey] = {
+          month: monthKey,
+          paymentDate: payment.pay_month,
+          items: [],
+          baseAmount: 0,
+          bonusAmount: 0,
+          deductionAmount: 0,
+          total: 0
+        };
       }
-    ]);
+
+      const amount = Number(payment.amount) || 0;
+      const isBonus = payment.is_bonus === true;
+      const isDeduction = payment.is_deduction === true;
+
+      grouped[monthKey].items.push({
+        name: payment.item_id?.item_name || '薪酬项目',
+        amount,
+        isBonus,
+        isDeduction
+      });
+
+      if (isBonus) grouped[monthKey].bonusAmount += amount;
+      else if (isDeduction) grouped[monthKey].deductionAmount += amount;
+      else grouped[monthKey].baseAmount += amount;
+
+      grouped[monthKey].total = grouped[monthKey].baseAmount
+        + grouped[monthKey].bonusAmount
+        - grouped[monthKey].deductionAmount;
+    });
+
+    const salaryRecords = Object.values(grouped)
+      .sort((a, b) => new Date(b.month) - new Date(a.month))
+      .slice(0, 12);
 
     successResponse(res, salaryRecords, '获取员工薪酬汇总成功');
   } catch (error) {
@@ -472,4 +541,5 @@ export default {
   updateSubordinate,
   getSubordinateSalary
 };
+
 

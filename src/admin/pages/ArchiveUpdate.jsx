@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { getArchives, updateArchive, getOrganizations, getPositions } from '../../services/adminService'
+import { getArchives, updateArchive, getOrganizations, getPositions, updateOrganization } from '../../services/adminService'
 
 const ArchiveUpdate = () => {
   const [archives, setArchives] = useState([])
@@ -30,6 +30,8 @@ const ArchiveUpdate = () => {
   const [formData, setFormData] = useState({})
   const [availablePositions, setAvailablePositions] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [managerAction, setManagerAction] = useState('keep') // keep | set | unset
+  const [isCurrentManager, setIsCurrentManager] = useState(false)
 
   // 加载数据
   useEffect(() => {
@@ -67,7 +69,8 @@ const ArchiveUpdate = () => {
         const formattedOrgs = orgsData.map(org => ({
           id: org._id,
           name: org.org_name,
-          path: org.fullPath || org.org_name // 如果后端没有fullPath，使用org_name
+          path: org.fullPath || org.org_name, // 如果后端没有fullPath，使用org_name
+          managerId: org.manager_emp_id?._id || org.manager_emp_id || null
         }))
         setOrganizations(formattedOrgs)
         
@@ -91,11 +94,19 @@ const ArchiveUpdate = () => {
     loadData()
   }, [])
 
+  const computeManagerState = (orgId, empId) => {
+    const org = organizations.find(o => o.id === orgId)
+    const isMgr = org ? org.managerId === empId : false
+    setIsCurrentManager(isMgr)
+    setManagerAction('keep')
+  }
+
   const handleEdit = (archive) => {
     setSelectedArchive(archive)
     setFormData(archive)
     const filtered = positions.filter(p => p.organizationId === archive.organizationId)
     setAvailablePositions(filtered)
+    computeManagerState(archive.organizationId, archive.id)
     setIsModalOpen(true)
   }
 
@@ -103,6 +114,7 @@ const ArchiveUpdate = () => {
     const filtered = positions.filter(p => p.organizationId === orgId)
     setAvailablePositions(filtered)
     setFormData({ ...formData, organizationId: orgId, positionId: null })
+    computeManagerState(orgId, formData.id || selectedArchive?.id)
   }
 
   const handleSave = async () => {
@@ -126,6 +138,17 @@ const ArchiveUpdate = () => {
       
       // 调用API更新档案
       await updateArchive(selectedArchive.id, updateData)
+
+      // 根据操作更新机构负责人
+      if (formData.organizationId && managerAction !== 'keep') {
+        try {
+          await updateOrganization(formData.organizationId, {
+            manager_emp_id: managerAction === 'set' ? selectedArchive.id : null
+          })
+        } catch (e) {
+          console.error('设置机构负责人失败', e)
+        }
+      }
       
       // 更新本地数据
       const org = organizations.find(o => o.id === formData.organizationId)
@@ -138,6 +161,7 @@ const ArchiveUpdate = () => {
       ))
       
       setIsModalOpen(false)
+      setManagerAction('keep')
       alert('档案更新成功，需等待复核')
     } catch (error) {
       console.error('更新档案失败:', error)
@@ -344,6 +368,40 @@ const ArchiveUpdate = () => {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">机构负责人状态</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      当前：{isCurrentManager ? '该员工是此机构负责人' : '非负责人'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-sm rounded-lg border border-green-500 text-green-600 hover:bg-green-50 disabled:opacity-60"
+                      onClick={() => setManagerAction('set')}
+                      disabled={!formData.organizationId || managerAction === 'set'}
+                    >
+                      设为负责人
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-sm rounded-lg border border-red-500 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                      onClick={() => setManagerAction('unset')}
+                      disabled={!formData.organizationId || managerAction === 'unset' || (!isCurrentManager && managerAction !== 'set')}
+                    >
+                      取消负责人
+                    </button>
+                  </div>
+                </div>
+                {managerAction !== 'keep' && (
+                  <p className="mt-2 text-xs text-[#59168b]">
+                    待提交操作：{managerAction === 'set' ? '设为负责人' : '取消负责人'}
+                  </p>
+                )}
               </div>
 
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">

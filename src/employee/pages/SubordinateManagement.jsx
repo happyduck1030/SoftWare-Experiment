@@ -408,16 +408,64 @@ const SubordinateManagement = () => {
           </div>
 
           {salaryData.length > 0 ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {salaryData.map((record, index) => (
-                <div key={index} className="flex justify-between items-center bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center">
-                      <span className="text-lg">📅</span>
+                <div key={index} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center">
+                        <span className="text-lg">📅</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{record.month}</p>
+                        <p className="text-xs text-gray-500">发放日期：{formatDate(record.paymentDate)}</p>
+                      </div>
                     </div>
-                    <span className="font-medium text-gray-900">{record.month}</span>
+                    <div className="grid grid-cols-3 gap-2 flex-1">
+                      <div className="rounded-xl bg-gray-50 border border-gray-100 p-2">
+                        <p className="text-[11px] text-gray-500">基薪</p>
+                        <p className="font-semibold text-gray-900">¥{(record.baseAmount || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2">
+                        <p className="text-[11px] text-emerald-700">奖金</p>
+                        <p className="font-semibold text-emerald-700">+¥{(record.bonusAmount || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="rounded-xl bg-amber-50 border border-amber-100 p-2">
+                        <p className="text-[11px] text-amber-700">扣款</p>
+                        <p className="font-semibold text-amber-700">-¥{(record.deductionAmount || 0).toLocaleString()}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-[#59168b] text-white px-3 py-2">
+                      <p className="text-[11px] text-white/80">实发</p>
+                      <p className="text-lg font-bold">¥{(record.total || 0).toLocaleString()}</p>
+                    </div>
                   </div>
-                  <span className="text-lg font-semibold text-[#59168b]">¥{record.total.toLocaleString()}</span>
+
+                  <div className="mt-3">
+                    <p className="text-xs text-gray-500 mb-2">项目明细</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {(record.items || []).map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                          <div className="flex items-center space-x-2">
+                            <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+                              item.isBonus ? 'bg-emerald-100 text-emerald-700' :
+                              item.isDeduction ? 'bg-amber-100 text-amber-700' :
+                              'bg-indigo-100 text-indigo-700'
+                            }`}>
+                              {item.isBonus ? '奖金' : item.isDeduction ? '扣款' : '固定'}
+                            </span>
+                            <span className="text-sm text-gray-800">{item.name}</span>
+                          </div>
+                          <span className={`text-sm font-semibold ${item.isDeduction ? 'text-amber-700' : 'text-gray-900'}`}>
+                            {item.isDeduction ? '-' : ''}¥{(item.amount || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                      {(!record.items || record.items.length === 0) && (
+                        <div className="text-sm text-gray-400">暂无明细</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

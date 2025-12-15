@@ -34,29 +34,38 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       // 服务器返回错误
-      const { status, data } = error.response;
-      
-      switch (status) {
-        case 401:
-          // 未授权，清除token并跳转到登录页
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          window.location.href = '/';
-          break;
-        case 403:
-          console.error('没有权限访问此资源');
-          break;
-        case 404:
-          console.error('请求的资源不存在');
-          break;
-        case 500:
-          console.error('服务器错误');
-          break;
-        default:
-          console.error(data?.message || '请求失败');
+      const { status, data, config } = error.response;
+      const url = config?.url || '';
+
+      // 登录接口特殊处理：直接把后端返回抛给调用处，不做跳转
+      const isLoginRequest = url.includes('/auth/login');
+
+      if (!isLoginRequest) {
+        switch (status) {
+          case 401: {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            console.log('未授权，清除token并跳转到登录页');
+            window.location.href = '/404';
+            break;
+          }
+          case 403: {
+            console.error('没有权限访问此资源');
+            window.location.href = '/404';
+            break;
+          }
+          case 404:
+            console.error('请求的资源不存在');
+            break;
+          case 500:
+            console.error('服务器错误');
+            break;
+          default:
+            console.error(data?.message || '请求失败');
+        }
       }
-      
-      return Promise.reject(error.response.data);
+
+      return Promise.reject(error.response.data || data || { message: '请求失败' });
     } else if (error.request) {
       // 请求已发出但没有收到响应
       console.error('网络错误，请检查您的连接');
@@ -70,4 +79,5 @@ api.interceptors.response.use(
 );
 
 export default api;
+
 

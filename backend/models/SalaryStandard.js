@@ -70,3 +70,4 @@ salaryStandardSchema.statics.getStandardsByPosition = async function(positionId)
 
 export default mongoose.model('SalaryStandard', salaryStandardSchema);
 
+

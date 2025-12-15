@@ -38,3 +38,4 @@ positionSchema.index({ pos_name: 1, org_id: 1 });
 
 export default mongoose.model('Position', positionSchema);
 
+

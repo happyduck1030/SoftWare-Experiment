@@ -336,6 +336,12 @@ const seedData = async () => {
       is_active: true
     });
 
+    const salaryItem13 = await SalaryItem.create({
+      item_name: '扣款',
+      description: '扣款项目',
+      is_active: true
+    });
+
     console.log(`✅ 创建了 ${await SalaryItem.countDocuments()} 个薪酬项目\n`);
 
     // 6. 创建薪酬标准
@@ -403,6 +409,13 @@ const seedData = async () => {
         pos_id: pos3._id,
         item_id: salaryItem9._id,
         amount: 200,
+        effective_date: new Date('2024-01-01'),
+        reviewed: true
+      },
+      {
+        pos_id: pos3._id,
+        item_id: salaryItem13._id,
+        amount: 0,
         effective_date: new Date('2024-01-01'),
         reviewed: true
       }
@@ -489,6 +502,15 @@ const seedData = async () => {
           pay_month: new Date(`${month}-01`),
           batch_id: batchId,
           reviewed: true
+        },
+        {
+          emp_id: emp4._id,
+          item_id: salaryItem13._id,
+          amount: 0,
+          pay_month: new Date(`${month}-01`),
+          batch_id: batchId,
+          reviewed: true,
+          is_deduction: true
         }
       ]);
     }

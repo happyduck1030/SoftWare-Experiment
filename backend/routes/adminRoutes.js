@@ -36,6 +36,20 @@ import {
   deleteSalaryItem
 } from '../controllers/admin/salaryItemController.js';
 
+import {
+  getSalaryStandards,
+  createSalaryStandard,
+  reviewSalaryStandard,
+  deleteSalaryStandard
+} from '../controllers/admin/salaryStandardController.js';
+import {
+  previewPayments,
+  registerPayments,
+  listPayments,
+  getPaymentDetail,
+  reviewPaymentBatch
+} from '../controllers/admin/salaryPaymentController.js';
+
 const router = express.Router();
 
 // 所有管理员路由都需要登录和管理员权限
@@ -85,6 +99,21 @@ router.route('/salary-items/:id')
   .get(getSalaryItemById)
   .put(updateSalaryItem)
   .delete(deleteSalaryItem);
+
+// 薪酬标准管理路由
+router.route('/salary-standards')
+  .get(getSalaryStandards)
+  .post(createSalaryStandard);
+
+router.put('/salary-standards/:id/review', reviewSalaryStandard);
+router.delete('/salary-standards/:id', deleteSalaryStandard);
+
+// 薪酬发放管理
+router.get('/salary-payments/preview', previewPayments);
+router.post('/salary-payments/register', registerPayments);
+router.get('/salary-payments', listPayments);
+router.get('/salary-payments/:batchId', getPaymentDetail);
+router.put('/salary-payments/batch/:batchId/review', reviewPaymentBatch);
 
 export default router;
 

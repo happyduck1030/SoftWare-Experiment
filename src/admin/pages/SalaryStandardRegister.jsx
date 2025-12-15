@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
+import { message } from 'antd'
 import { getSalaryStandards, createSalaryStandard, getOrganizations, getPositions, getSalaryItems } from '../../services/adminService'
 
 const SalaryStandardRegister = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [standards, setStandards] = useState([])
   const [organizations, setOrganizations] = useState([])
   const [positions, setPositions] = useState([])
@@ -40,7 +42,6 @@ const SalaryStandardRegister = () => {
     const loadData = async () => {
       try {
         setLoading(true)
-        
         // 并行加载所有数据
         const [standardsRes, orgsRes, positionsRes, itemsRes] = await Promise.all([
           getSalaryStandards(),
@@ -51,18 +52,23 @@ const SalaryStandardRegister = () => {
         
         // 处理薪酬标准数据
         const standardsData = standardsRes.data || []
-        const formattedStandards = standardsData.map(standard => ({
-          id: standard._id,
-          organizationId: standard.pos_id?.org_id?._id || standard.pos_id?.org_id,
-          organizationName: standard.pos_id?.org_id?.org_name || '',
-          organizationPath: standard.pos_id?.org_id?.fullPath || '',
-          positionId: standard.pos_id?._id,
-          positionName: standard.pos_id?.pos_name || '',
-          items: standard.items || {},
-          total: Object.values(standard.items || {}).reduce((sum, val) => sum + val, 0),
-          status: standard.reviewed ? '已复核' : '待复核',
-          createTime: standard.created_at ? new Date(standard.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
-        }))
+        const formattedStandards = standardsData.map(standard => {
+          const org = standard.pos_id?.org_id
+          const itemsObj = standard.items || {}
+          const total = Object.values(itemsObj).reduce((sum, v) => sum + v, 0)
+          return {
+            id: standard._id || standard.id,
+            organizationId: org?._id || org,
+            organizationName: org?.org_name || '',
+            organizationPath: org?.org_name || '',
+            positionId: standard.pos_id?._id,
+            positionName: standard.pos_id?.pos_name || '',
+            items: itemsObj,
+            total,
+            status: standard.reviewed ? 'reviewed' : 'pending',
+            createTime: standard.created_at ? new Date(standard.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
+          }
+        })
         setStandards(formattedStandards)
         
         // 处理机构数据
@@ -94,7 +100,7 @@ const SalaryStandardRegister = () => {
         
       } catch (error) {
         console.error('加载数据失败:', error)
-        // 可以在这里添加错误提示
+        messageApi.error(error.message || '加载薪酬标准相关数据失败')
       } finally {
         setLoading(false)
       }
@@ -128,7 +134,7 @@ const SalaryStandardRegister = () => {
 
   const handleSave = async () => {
     if (!formData.organizationId || !formData.positionId) {
-      alert('请选择机构和职位')
+      messageApi.warning('请选择机构和职位')
       return
     }
 
@@ -144,30 +150,28 @@ const SalaryStandardRegister = () => {
         items: formData.items
       }
       
-      // 调用API创建薪酬标准
       const response = await createSalaryStandard(createData)
       const newStandardData = response.data
-      
-      // 转换为前端格式
+
       const newStandard = {
         id: newStandardData._id,
-        organizationId: formData.organizationId,
+        organizationId: org?.id,
         organizationName: org?.name || '',
         organizationPath: org?.path || '',
-        positionId: formData.positionId,
+        positionId: pos?.id,
         positionName: pos?.name || '',
-        items: formData.items,
-        total: Object.values(formData.items).reduce((sum, val) => sum + val, 0),
-        status: newStandardData.reviewed ? '已复核' : '待复核',
+        items: newStandardData.items || formData.items,
+        total: Object.values(newStandardData.items || formData.items).reduce((sum, val) => sum + val, 0),
+        status: newStandardData.reviewed ? 'reviewed' : 'pending',
         createTime: newStandardData.created_at ? new Date(newStandardData.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
       }
 
-      setStandards([newStandard, ...standards])
+      setStandards(prev => [newStandard, ...prev])
       setIsModalOpen(false)
-      alert('薪酬标准已提交，等待复核')
+      messageApi.success('薪酬标准已提交，等待复核')
     } catch (error) {
       console.error('创建薪酬标准失败:', error)
-      alert(error.message || '薪酬标准创建失败')
+      messageApi.error(error.message || '薪酬标准创建失败')
     } finally {
       setSubmitting(false)
     }
@@ -177,8 +181,19 @@ const SalaryStandardRegister = () => {
     return Object.values(formData.items).reduce((sum, val) => sum + val, 0)
   }
 
+  const renderStatusBadge = (status) => {
+    const isReviewed = status === 'reviewed'
+    const base = 'inline-flex items-center justify-center min-w-[88px] px-4 py-1.5 rounded-full text-xs font-semibold border'
+    return (
+      <span className={`${base} ${isReviewed ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+        {isReviewed ? '已复核' : '待复核'}
+      </span>
+    )
+  }
+
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -270,9 +285,7 @@ const SalaryStandardRegister = () => {
                       <td className="px-6 py-4 text-sm text-gray-500">{standard.organizationPath}</td>
                       <td className="px-6 py-4 text-gray-900 font-semibold">¥{standard.total.toLocaleString()}</td>
                       <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
-                          ⏳ 待复核
-                        </span>
+                        {renderStatusBadge(standard.status)}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">{standard.createTime}</td>
                     </tr>

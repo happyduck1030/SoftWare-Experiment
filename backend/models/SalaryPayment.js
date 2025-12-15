@@ -51,6 +51,16 @@ const salaryPaymentSchema = new mongoose.Schema({
   updated_at: {
     type: Date,
     default: Date.now
+  },
+  // 新增：是否为奖金
+  is_bonus: {
+    type: Boolean,
+    default: false
+  },
+  // 新增：是否为扣款
+  is_deduction: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
@@ -102,4 +112,5 @@ salaryPaymentSchema.statics.getSummaryByMonth = async function(employeeId) {
 };
 
 export default mongoose.model('SalaryPayment', salaryPaymentSchema);
+
 

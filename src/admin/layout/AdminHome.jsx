@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import OrganizationSettings from '../pages/OrganizationSettings'
 import PositionSettings from '../pages/PositionSettings'
 import SalaryItemSettings from '../pages/SalaryItemSettings'
@@ -17,6 +17,7 @@ import SalaryPaymentSearch from '../pages/SalaryPaymentSearch'
 
 const AdminHome = () => {
   const location = useLocation()
+  const navigate = useNavigate()
 
   const menuItems = [
     {
@@ -49,6 +50,18 @@ const AdminHome = () => {
   ]
 
   const isActive = (path) => location.pathname === path
+
+  const handleLogout = () => {
+    // 清除本地登录信息
+    try {
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
+    } catch (e) {
+      console.error('清除本地登录信息失败', e)
+    }
+    // 跳转回登录页
+    navigate('/', { replace: true })
+  }
 
   return (
     <div className="flex h-screen w-screen bg-[#fafafa] overflow-hidden">
@@ -102,7 +115,10 @@ const AdminHome = () => {
 
         {/* 底部 */}
         <div className="p-4 border-t border-gray-200">
-          <button className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 transition-colors duration-150">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 transition-colors duration-150 cursor-pointer"
+          >
             <span className="text-base">🚪</span>
             <span className="text-sm font-medium">退出登录</span>
           </button>

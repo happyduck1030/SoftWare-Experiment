@@ -3,6 +3,7 @@ import { SmileOutlined } from "@ant-design/icons";
 import { Form, Input, Button, Checkbox, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import { login } from "../../services/authService";
+
 const formItemLayout = {
   labelCol: {
     xs: {
@@ -23,6 +24,22 @@ const formItemLayout = {
 };
 
 const LoginForm = () => {
+  const [messageApi, contextHolder] = message.useMessage();
+  const successTips = () => {
+    messageApi.open({
+      type: 'success',
+      content: '登录成功',
+    });
+  };
+
+  const errorTips = () => {
+    messageApi.open({
+      type: 'error',
+      content: '请检查用户名和密码是否正确',
+    });
+  };
+
+  
   const navigate = useNavigate();
   // const {setToken}=  useUserStore();
   const [form] = Form.useForm();
@@ -37,15 +54,15 @@ const LoginForm = () => {
     try {
       setLoading(true);
       const response = await login(values.username, values.password);
-      
+      console.log('Login response:', response);
       if (response.success) {
         const { user, token } = response.data;
-        
+        console.log('user', user)
         // 保存token和用户信息
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         
-        message.success('登录成功！');
+        successTips();
         
         // 根据用户角色跳转
         if (user.role === 'admin') {
@@ -54,11 +71,11 @@ const LoginForm = () => {
           navigate('/employee');
         }
       } else {
-        message.error(response.message || '登录失败');
+        errorTips();
       }
     } catch (error) {
       console.error('Login error:', error);
-      message.error(error.message || '登录失败，请检查用户名和密码');
+      errorTips();
     } finally {
       setLoading(false);
     }
@@ -67,18 +84,16 @@ const LoginForm = () => {
   const roleConfig = {
     employee: {
       backgroundImage: "/public/assets/images/stu.png",
-      // api: stuLoginAPI,
-      // getInfoAPI: getStuInfoAPI,
+
     },
   
     admin: {
       backgroundImage: "/public/assets/images/manager.png",
-      // api: loginAPI,
-      // getInfoAPI: getUserInfoAPI,
     },
   };
   return (
     <>
+      {contextHolder}
       <h1 className="h3-bold md:h2-bold pb-5 sm:pb-12 text-white font-bold text-2xl">
         人力资源管理
       </h1>

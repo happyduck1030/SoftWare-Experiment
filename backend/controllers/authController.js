@@ -292,3 +292,4 @@ export const updatePassword = async (req, res) => {
 
 export default { register, login, getMe, updatePassword };
 
+

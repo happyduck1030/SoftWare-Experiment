@@ -216,3 +216,4 @@ export const canUpdateEmployee = async (req, res, next) => {
 
 export default { protect, authorize, isAdmin, isBoss, canAccessEmployee, canUpdateEmployee };
 
+

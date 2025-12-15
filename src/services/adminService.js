@@ -228,6 +228,22 @@ export const getSalaryPayments = async (params) => {
   return response;
 };
 
+// 预览薪酬发放（按机构+月份加载员工及标准薪酬）
+export const previewSalaryPayments = async (params) => {
+  console.log('[API] 预览薪酬发放', params);
+  const response = await api.get('/admin/salary-payments/preview', { params });
+  console.log('[API Response] 预览薪酬发放', response);
+  return response;
+};
+
+// 登记薪酬发放批次
+export const registerSalaryPayments = async (data) => {
+  console.log('[API] 登记薪酬发放', data);
+  const response = await api.post('/admin/salary-payments/register', data);
+  console.log('[API Response] 登记薪酬发放', response);
+  return response;
+};
+
 // 创建薪酬发放
 export const createSalaryPayment = async (data) => {
   console.log('[API] 创建薪酬发放', data);
@@ -241,6 +257,14 @@ export const reviewSalaryPayment = async (batchId, approved) => {
   console.log('[API] 复核薪酬发放', batchId, approved);
   const response = await api.put(`/admin/salary-payments/batch/${batchId}/review`, { approved });
   console.log('[API Response] 复核薪酬发放', response);
+  return response;
+};
+
+// 获取某个批次的详细薪酬信息
+export const getSalaryPaymentDetail = async (batchId) => {
+  console.log('[API] 获取薪酬发放批次详情', batchId);
+  const response = await api.get(`/admin/salary-payments/${batchId}`);
+  console.log('[API Response] 薪酬发放批次详情', response);
   return response;
 };
 
@@ -284,6 +308,10 @@ export default {
   // 薪酬发放
   getSalaryPayments,
   createSalaryPayment,
-  reviewSalaryPayment
+  reviewSalaryPayment,
+  previewSalaryPayments,
+  registerSalaryPayments,
+  getSalaryPaymentDetail
 };
+
 
