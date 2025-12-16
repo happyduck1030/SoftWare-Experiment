@@ -12,6 +12,7 @@ const SalaryStandardReview = () => {
   const [detailOpen, setDetailOpen] = useState(false)
   const [selected, setSelected] = useState(null)
   const [confirmState, setConfirmState] = useState(null) // { approved: boolean }
+  const [activeStatus, setActiveStatus] = useState('all') // all | 已复核 | 待复核 | 已驳回
 
   const salaryItemMap = useMemo(() => {
     const m = {}
@@ -35,6 +36,9 @@ const SalaryStandardReview = () => {
           const organizationName = s.organizationName || s.organizationPath || s.pos_id?.org_id?.org_name || s.pos_id?.org_id?.name
           const organizationPath = s.organizationPath || s.pos_id?.org_id?.fullPath || organizationName
           const createTime = s.createTime || s.created_at || s.createdAt
+          const status =
+            s.status ||
+            (s.reviewed ? '已复核' : s.reviewed === false && s.reviewed_by ? '已驳回' : '待复核')
           return {
             ...s,
             id,
@@ -43,6 +47,7 @@ const SalaryStandardReview = () => {
             organizationName,
             organizationPath,
             createTime,
+            status
           }
         })
         setStandards(normalized)
@@ -100,8 +105,17 @@ const SalaryStandardReview = () => {
   }
 
   const pendingCount = standards.filter(
-    s => s.reviewed === false || s.status === 'pending' || s.status === '待复核'
+    s => s.status === '待复核' || (!s.status && s.reviewed === false)
   ).length
+  const approvedCount = standards.filter(
+    s => s.status === '已复核' || (s.status === undefined && s.reviewed === true)
+  ).length
+  const rejectedCount = standards.filter(s => s.status === '已驳回').length
+
+  const filteredStandards = useMemo(() => {
+    if (activeStatus === 'all') return standards
+    return standards.filter(s => s.status === activeStatus)
+  }, [activeStatus, standards])
 
   const renderItems = (itemsObj) => {
     if (!itemsObj) return '—'
@@ -109,6 +123,43 @@ const SalaryStandardReview = () => {
       const name = salaryItemMap[itemId]?.item_name || salaryItemMap[itemId]?.name || '项目'
       return `${name} ¥${amount}`
     }).join('； ')
+  }
+
+  const renderStatusBadge = (status) => {
+    const s = status || '待复核'
+    const cls =
+      s === '已复核'
+        ? 'bg-green-50 text-green-700 border-green-100'
+        : s === '已驳回'
+        ? 'bg-red-50 text-red-700 border-red-100'
+        : 'bg-orange-50 text-orange-700 border-orange-100'
+    return (
+      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${cls}`}>
+        {s}
+      </span>
+    )
+  }
+
+  const renderCard = (title, count, color, statusKey) => {
+    const active = activeStatus === statusKey
+    const base = 'bg-white rounded-2xl border border-gray-200 p-6 shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer'
+    const activeCls = active ? 'ring-2 ring-offset-2 ring-[#59168b] shadow-xl' : ''
+    return (
+      <div
+        className={`${base} ${activeCls}`}
+        onClick={() => setActiveStatus(statusKey)}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500 mb-2">{title}</p>
+            <p className="text-3xl font-semibold text-gray-900">{count}</p>
+          </div>
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl ${color}`}>
+            {statusKey === '待复核' ? '⏳' : statusKey === '已复核' ? '✓' : '✗'}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -121,33 +172,9 @@ const SalaryStandardReview = () => {
         </div>
 
         <div className="grid grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 mb-2">待复核</p>
-                <p className="text-3xl font-semibold text-gray-900">{pendingCount}</p>
-              </div>
-              <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center text-3xl">⏳</div>
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 mb-2">今日已审</p>
-                <p className="text-3xl font-semibold text-gray-900">0</p>
-              </div>
-              <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center text-3xl">✓</div>
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 mb-2">今日驳回</p>
-                <p className="text-3xl font-semibold text-gray-900">0</p>
-              </div>
-              <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center text-3xl">✗</div>
-            </div>
-          </div>
+          {renderCard('待复核', pendingCount, 'bg-orange-50 text-orange-500', '待复核')}
+          {renderCard('已复核', approvedCount, 'bg-green-50 text-green-600', '已复核')}
+          {renderCard('已驳回', rejectedCount, 'bg-red-50 text-red-500', '已驳回')}
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -167,31 +194,21 @@ const SalaryStandardReview = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {standards.length === 0 ? (
+              {filteredStandards.length === 0 ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-20 text-center">
                     <div className="text-6xl mb-4">✓</div>
-                    <p className="text-gray-500">暂无待复核标准</p>
+                    <p className="text-gray-500">暂无符合条件的标准</p>
                   </td>
                 </tr>
               ) : (
-                standards.map((standard) => (
+                filteredStandards.map((standard) => (
                   <tr key={standard.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{standard.positionName || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{standard.organizationName || standard.organizationPath || '-'}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{renderItems(standard.items)}</td>
                     <td className="px-6 py-4 text-gray-900 font-semibold">¥{(standard.total || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4">
-                      {standard.reviewed ? (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-green-50 text-green-700 border border-green-100 text-xs font-semibold whitespace-nowrap">
-                          已复核
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-100 text-xs font-semibold whitespace-nowrap">
-                          待复核
-                        </span>
-                      )}
-                    </td>
+                    <td className="px-6 py-4">{renderStatusBadge(standard.status)}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{standard.createTime || ''}</td>
                     <td className="px-6 py-4 text-center">
                       <button
@@ -239,13 +256,9 @@ const SalaryStandardReview = () => {
                 <div className="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500 mb-1">审核状态</p>
-                    <p className="text-sm font-medium text-gray-900">{selected.reviewed ? '已复核' : '待复核'}</p>
+                    <p className="text-sm font-medium text-gray-900">{selected.status || (selected.reviewed ? '已复核' : '待复核')}</p>
                   </div>
-                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                    selected.reviewed ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-orange-50 text-orange-700 border border-orange-100'
-                  }`}>
-                    {selected.reviewed ? '已复核' : '待复核'}
-                  </span>
+                  {renderStatusBadge(selected.status || (selected.reviewed ? '已复核' : '待复核'))}
                 </div>
               </div>
 

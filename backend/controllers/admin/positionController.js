@@ -1,6 +1,7 @@
 import Position from '../../models/Position.js';
 import Organization from '../../models/Organization.js';
 import Employee from '../../models/Employee.js';
+import User from '../../models/User.js';
 import { successResponse, errorResponse, paginatedResponse } from '../../utils/responseFormatter.js';
 
 // @desc    获取职位列表
@@ -70,7 +71,7 @@ export const getPositionById = async (req, res) => {
 // @access  Private/Admin
 export const createPosition = async (req, res) => {
   try {
-    const { pos_name, org_id, description } = req.body;
+    const { pos_name, org_id, description, is_boss } = req.body;
 
     if (!pos_name || !org_id) {
       return errorResponse(res, '职位名称和所属机构不能为空', 400);
@@ -100,7 +101,8 @@ export const createPosition = async (req, res) => {
     const position = await Position.create({
       pos_name,
       org_id,
-      description
+      description,
+      is_boss: !!is_boss
     });
 
     const newPosition = await Position.findById(position._id)
@@ -119,7 +121,7 @@ export const createPosition = async (req, res) => {
 export const updatePosition = async (req, res) => {
   try {
     const { id } = req.params;
-    const { pos_name, description } = req.body;
+    const { pos_name, description, is_boss } = req.body;
 
     const position = await Position.findById(id);
     if (!position) {
@@ -145,7 +147,42 @@ export const updatePosition = async (req, res) => {
 
     if (description !== undefined) position.description = description;
 
+    // 更新负责人标记
+    let bossFlagChanged = false;
+    if (is_boss !== undefined) {
+      const newFlag = !!is_boss;
+      if (position.is_boss !== newFlag) {
+        position.is_boss = newFlag;
+        bossFlagChanged = true;
+      }
+    }
+
     await position.save();
+
+    // 如果负责人标记发生变化，同步更新该职位下已有关联用户的角色
+    if (bossFlagChanged) {
+      const employees = await Employee.find({ pos_id: id, is_deleted: false }).select('_id');
+      const empIds = employees.map(e => e._id);
+      if (empIds.length > 0) {
+        if (position.is_boss) {
+          // 将这些员工的用户角色升级为 boss（保留 admin）
+          await User.updateMany(
+            { emp_id: { $in: empIds }, role: { $ne: 'admin' } },
+            { $set: { role: 'boss' } }
+          );
+        } else {
+          // 取消负责人职位：非 admin 并且不再管理机构的用户降级为 employee
+          const users = await User.find({ emp_id: { $in: empIds }, role: { $ne: 'admin' } });
+          for (const user of users) {
+            const managedOrg = await user.isBossOfOrganization();
+            if (!managedOrg) {
+              user.role = 'employee';
+              await user.save();
+            }
+          }
+        }
+      }
+    }
 
     const updatedPosition = await Position.findById(id)
       .populate('org_id', 'org_name org_level');
@@ -196,5 +233,6 @@ export default {
   updatePosition,
   deletePosition
 };
+
 
 

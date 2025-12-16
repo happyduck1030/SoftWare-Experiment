@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { message, Modal, Spin } from 'antd'
-import { getSalaryPayments, getSalaryPaymentDetail, reviewSalaryPayment } from '../../services/adminService'
+import { getSalaryPayments, getSalaryPaymentDetail, reviewSalaryPayment, withdrawSalaryPaymentBatch } from '../../services/adminService'
 
 const SalaryPaymentReview = () => {
   const [messageApi, contextHolder] = message.useMessage()
@@ -12,7 +12,18 @@ const SalaryPaymentReview = () => {
   const [employeeDetails, setEmployeeDetails] = useState([])
   const [confirmState, setConfirmState] = useState(null) // { approved: boolean }
 
-  const pendingCount = useMemo(() => payments.filter(p => !p.reviewed).length, [payments])
+  const pendingCount = useMemo(
+    () => payments.filter(p => p.status === '待复核' || (!p.status && !p.reviewed)).length,
+    [payments]
+  )
+  const approvedCount = useMemo(
+    () => payments.filter(p => p.status === '已复核' || (!p.status && p.reviewed)).length,
+    [payments]
+  )
+  const rejectedCount = useMemo(
+    () => payments.filter(p => p.status === '已驳回').length,
+    [payments]
+  )
 
   const loadPayments = useCallback(async () => {
     try {
@@ -25,7 +36,8 @@ const SalaryPaymentReview = () => {
           month: p.month,
           employeeCount: undefined, // 初始不信任列表返回的员工数，后续用详情覆盖
           totalAmount: p.totalAmount || 0,
-          reviewed: !!p.reviewed
+          reviewed: !!p.reviewed,
+          status: p.status || (p.reviewed ? '已复核' : '待复核')
         }))
         setPayments(normalized)
         // 逐个批次获取详情以获得真实员工人数
@@ -52,16 +64,44 @@ const SalaryPaymentReview = () => {
       const res = await getSalaryPaymentDetail(payment.id)
       if (res.success) {
         const data = res.data
-        const detailEmployees = (data?.employees || []).map(emp => ({
-          id: emp.empId,
-          name: emp.name,
-          positionName: emp.positionName,
-          baseAmount: emp.baseAmount,
-          bonusAmount: emp.bonusAmount,
-          deductionAmount: emp.deductionAmount,
-          actualAmount: emp.actualAmount,
-          items: emp.items || []
-        }))
+        const detailEmployees = (data?.employees || []).map(emp => {
+          // 1) 先按项目名称去重，只保留同名项目的最新一条记录
+          const rawItems = emp.items || []
+          const itemMap = {}
+          rawItems.forEach(it => {
+            if (!it || !it.itemName) return
+            // 后写入的覆盖先写入的，认为是“最新数据”
+            itemMap[it.itemName] = { ...it }
+          })
+          const mergedItems = Object.values(itemMap)
+
+          // 2) 基于合并后的项目重新计算基础、奖金、扣款三类金额
+          const baseAmount = mergedItems
+            .filter(it => !it.isBonus && !it.isDeduction)
+            .reduce((sum, it) => sum + (it.amount || 0), 0)
+          const bonusAmount = mergedItems
+            .filter(it => it.isBonus)
+            .reduce((sum, it) => sum + (it.amount || 0), 0)
+          const deductionAmount = mergedItems
+            .filter(it => it.isDeduction)
+            .reduce((sum, it) => sum + (it.amount || 0), 0)
+
+          const actualAmount =
+            emp.actualAmount != null
+              ? emp.actualAmount
+              : baseAmount + bonusAmount - deductionAmount
+
+          return {
+            id: emp.empId,
+            name: emp.name,
+            positionName: emp.positionName,
+            baseAmount,
+            bonusAmount,
+            deductionAmount,
+            actualAmount,
+            items: mergedItems
+          }
+        })
         setEmployeeDetails(detailEmployees)
         setSelectedPayment(prev => ({
           ...prev,
@@ -108,10 +148,19 @@ const SalaryPaymentReview = () => {
       setSubmitting(true)
       const res = await reviewSalaryPayment(selectedPayment.id, approved)
       if (res.success) {
+        const newStatus = approved ? '已复核' : '已驳回'
         messageApi.success(approved ? '复核通过' : '已驳回')
-        setPayments(prev => prev.filter(p => p.id !== selectedPayment.id))
-        setSelectedPayment(null)
-        setEmployeeDetails([])
+        // 更新当前行状态，而不是从列表中删除
+        setPayments(prev =>
+          prev.map(p =>
+            p.id === selectedPayment.id
+              ? { ...p, reviewed: approved, status: newStatus }
+              : p
+          )
+        )
+        setSelectedPayment(prev =>
+          prev ? { ...prev, reviewed: approved, status: newStatus } : prev
+        )
         setConfirmState(null)
       } else {
         messageApi.error(res.message || '操作失败')
@@ -124,13 +173,50 @@ const SalaryPaymentReview = () => {
     }
   }
 
-  const renderStatusBadge = (reviewed) => {
-    return (
-      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${reviewed
+  const handleWithdraw = async () => {
+    if (!selectedPayment) return
+    try {
+      setSubmitting(true)
+      const res = await withdrawSalaryPaymentBatch(selectedPayment.id)
+      if (res.success) {
+        messageApi.success('已撤回')
+        // 更新当前行状态
+        setPayments(prev =>
+          prev.map(p =>
+            p.id === selectedPayment.id
+              ? { ...p, reviewed: false, status: '已撤回' }
+              : p
+          )
+        )
+        setSelectedPayment(prev =>
+          prev ? { ...prev, reviewed: false, status: '已撤回' } : prev
+        )
+      } else {
+        messageApi.error(res.message || '撤回失败')
+      }
+    } catch (e) {
+      console.error(e)
+      messageApi.error(e.message || '撤回失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const renderStatusBadge = (reviewed, status) => {
+    const s = status || (reviewed ? '已复核' : '待复核')
+    const color =
+      s === '已复核'
         ? 'bg-green-50 text-green-700 border-green-100'
+        : s === '已驳回'
+        ? 'bg-red-50 text-red-700 border-red-100'
+        : s === '已撤回'
+        ? 'bg-gray-50 text-gray-700 border-gray-100'
         : 'bg-orange-50 text-orange-700 border-orange-100'
-      }`}>
-        {reviewed ? '已复核' : '待复核'}
+    return (
+      <span
+        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${color}`}
+      >
+        {s}
       </span>
     )
   }
@@ -148,7 +234,7 @@ const SalaryPaymentReview = () => {
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">待复核</p>
+                <p className="text-sm text-gray-500 mb-2">待复核批次</p>
                 <p className="text-3xl font-semibold text-gray-900">{pendingCount}</p>
               </div>
               <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center text-3xl">⏳</div>
@@ -157,8 +243,8 @@ const SalaryPaymentReview = () => {
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">今日已审</p>
-                <p className="text-3xl font-semibold text-gray-900">0</p>
+                <p className="text-sm text-gray-500 mb-2">已复核批次</p>
+                <p className="text-3xl font-semibold text-gray-900">{approvedCount}</p>
               </div>
               <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center text-3xl">✓</div>
             </div>
@@ -166,8 +252,8 @@ const SalaryPaymentReview = () => {
           <div className="bg-white rounded-2xl border border-gray-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">今日驳回</p>
-                <p className="text-3xl font-semibold text-gray-900">0</p>
+                <p className="text-sm text-gray-500 mb-2">已驳回批次</p>
+                <p className="text-3xl font-semibold text-gray-900">{rejectedCount}</p>
               </div>
               <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center text-3xl">✗</div>
             </div>
@@ -202,7 +288,9 @@ const SalaryPaymentReview = () => {
                     <td className="px-6 py-4 font-medium text-gray-900">{payment.month || '-'}</td>
                     <td className="px-6 py-4 text-gray-700">{payment.employeeCount}人</td>
                     <td className="px-6 py-4 text-gray-900 font-semibold">¥{(payment.totalAmount || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4">{renderStatusBadge(payment.reviewed)}</td>
+                    <td className="px-6 py-4">
+                      {renderStatusBadge(payment.reviewed, payment.status)}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => handleViewDetail(payment)}
@@ -289,6 +377,9 @@ const SalaryPaymentReview = () => {
 
             <div className="flex gap-3 p-6 bg-gray-50 border-t border-gray-200">
               <button onClick={() => { setSelectedPayment(null); setEmployeeDetails([]) }} className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50 cursor-pointer">取消</button>
+              {(selectedPayment?.status === '已复核' || selectedPayment?.status === '待复核') && (
+                <button onClick={handleWithdraw} className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-600 font-medium rounded-xl hover:bg-gray-50 cursor-pointer" disabled={submitting}>撤回</button>
+              )}
               <button onClick={() => handleApproveReject(false)} className="flex-1 px-4 py-3 bg-white border border-red-300 text-red-600 font-medium rounded-xl hover:bg-red-50 cursor-pointer" disabled={submitting}>驳回</button>
               <button onClick={() => handleApproveReject(true)} className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl cursor-pointer" disabled={submitting}>通过</button>
             </div>

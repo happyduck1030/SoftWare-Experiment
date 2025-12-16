@@ -40,14 +40,16 @@ import {
   getSalaryStandards,
   createSalaryStandard,
   reviewSalaryStandard,
-  deleteSalaryStandard
+  deleteSalaryStandard,
+  withdrawSalaryStandard
 } from '../controllers/admin/salaryStandardController.js';
 import {
   previewPayments,
   registerPayments,
   listPayments,
   getPaymentDetail,
-  reviewPaymentBatch
+  reviewPaymentBatch,
+  withdrawPaymentBatch
 } from '../controllers/admin/salaryPaymentController.js';
 
 const router = express.Router();
@@ -106,6 +108,7 @@ router.route('/salary-standards')
   .post(createSalaryStandard);
 
 router.put('/salary-standards/:id/review', reviewSalaryStandard);
+router.put('/salary-standards/:id/withdraw', withdrawSalaryStandard);
 router.delete('/salary-standards/:id', deleteSalaryStandard);
 
 // 薪酬发放管理
@@ -114,6 +117,7 @@ router.post('/salary-payments/register', registerPayments);
 router.get('/salary-payments', listPayments);
 router.get('/salary-payments/:batchId', getPaymentDetail);
 router.put('/salary-payments/batch/:batchId/review', reviewPaymentBatch);
+router.put('/salary-payments/batch/:batchId/withdraw', withdrawPaymentBatch);
 
 export default router;
 

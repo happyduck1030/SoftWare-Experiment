@@ -21,6 +21,12 @@ const salaryStandardSchema = new mongoose.Schema({
     required: [true, '生效日期不能为空'],
     default: Date.now
   },
+  // 审核状态：待复核 / 已复核 / 已驳回 / 已撤回
+  status: {
+    type: String,
+    enum: ['待复核', '已复核', '已驳回', '已撤回'],
+    default: '待复核'
+  },
   reviewed: {
     type: Boolean,
     default: false

@@ -41,7 +41,7 @@ const employeeSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['在职', '离职', '休假', '停职', '待复核'],
+    enum: ['在职', '离职', '休假', '停职', '待复核', '已驳回'],
     default: '待复核'
   },
   education: {
@@ -60,6 +60,17 @@ const employeeSchema = new mongoose.Schema({
   emergency_phone: {
     type: String,
     match: [/^1[3-9]\d{9}$/, '紧急联系电话格式不正确']
+  },
+  // 待复核的负责人变更（set / unset / keep）
+  pending_manager_action: {
+    type: String,
+    enum: ['set', 'unset', 'keep', null],
+    default: null
+  },
+  pending_manager_org: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    default: null
   },
   reviewed: {
     type: Boolean,

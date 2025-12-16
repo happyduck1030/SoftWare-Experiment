@@ -1,6 +1,7 @@
 import Employee from '../../models/Employee.js';
 import Position from '../../models/Position.js';
 import Organization from '../../models/Organization.js';
+import User from '../../models/User.js';
 import { successResponse, errorResponse, paginatedResponse } from '../../utils/responseFormatter.js';
 
 // @desc    获取员工档案列表
@@ -190,11 +191,62 @@ export const reviewArchive = async (req, res) => {
     
     if (approved) {
       employee.status = '在职';
+
+      // 如果有待生效的负责人变更，则在通过时同步到机构
+      if (employee.pending_manager_action && employee.pending_manager_org) {
+        const targetOrg = await Organization.findById(employee.pending_manager_org);
+
+        if (targetOrg) {
+          if (employee.pending_manager_action === 'set') {
+            targetOrg.manager_emp_id = employee._id;
+          } else if (employee.pending_manager_action === 'unset') {
+            // 仅在当前负责人是此员工时才清空，避免误清
+            if (String(targetOrg.manager_emp_id) === String(employee._id)) {
+              targetOrg.manager_emp_id = null;
+            }
+          }
+          await targetOrg.save();
+        }
+      }
     } else {
       employee.status = '已驳回';
     }
 
+    // 无论通过/驳回，都清理待生效的负责人变更意图
+    employee.pending_manager_action = null;
+    employee.pending_manager_org = null;
+
     await employee.save();
+
+    // 复核通过后自动创建用户账号（若不存在）
+    if (approved) {
+      const existingUserByEmp = await User.findOne({ emp_id: employee._id });
+      const existingUserByPhone = employee.phone
+        ? await User.findOne({ username: employee.phone })
+        : null;
+
+      const position = await Position.findById(employee.pos_id).populate('org_id');
+      const managedOrg = await Organization.findOne({
+        manager_emp_id: employee._id,
+        is_deleted: false
+      });
+      const shouldBeBoss = !!position?.is_boss || !!managedOrg;
+
+      if (!existingUserByEmp && !existingUserByPhone) {
+        await User.create({
+          username: employee.phone || employee.id_card,
+          password: '123456', // 模型内自动加密
+          emp_id: employee._id,
+          role: shouldBeBoss ? 'boss' : 'employee'
+        });
+      } else if (existingUserByEmp) {
+        // 若已存在账号但角色需提升为 boss
+        if (shouldBeBoss && existingUserByEmp.role === 'employee') {
+          existingUserByEmp.role = 'boss';
+          await existingUserByEmp.save();
+        }
+      }
+    }
 
     const updatedEmployee = await Employee.findById(id)
       .populate({
@@ -236,11 +288,17 @@ export const updateArchive = async (req, res) => {
       }
     }
 
-    // 如果修改了核心字段，需要重新复核
-    const coreFields = ['name', 'pos_id'];
-    const needsReview = coreFields.some(field => updates[field] !== undefined);
+    // 暂存负责人变更意图，待复核通过后生效
+    if (req.body.managerAction) {
+      updates.pending_manager_action = req.body.managerAction;
+      updates.pending_manager_org = req.body.managerOrgId || employee.pending_manager_org;
+    }
+
+    // 只要有字段被修改，就需要重新复核（包括电话、邮箱等所有信息）
+    const needsReview = Object.keys(updates).length > 0;
     
-    if (needsReview && employee.reviewed) {
+    // 已复核的档案，或者之前是“已驳回”的档案，只要再次修改都视为重新提交，状态改为待复核
+    if (needsReview && (employee.reviewed || employee.status === '已驳回')) {
       updates.reviewed = false;
       updates.status = '待复核';
     }
@@ -255,6 +313,23 @@ export const updateArchive = async (req, res) => {
 
     Object.assign(employee, updates);
     await employee.save();
+
+    // 如果更新了职位，同步更新关联用户的角色（根据职位是否为负责人 + 是否为机构负责人）
+    if (updates.pos_id) {
+      const user = await User.findOne({ emp_id: employee._id });
+      if (user && user.role !== 'admin') {
+        const newPosition = await Position.findById(employee.pos_id).populate('org_id');
+        const managedOrg = await user.isBossOfOrganization();
+        const shouldBeBoss = !!managedOrg || !!newPosition?.is_boss;
+        if (shouldBeBoss && user.role === 'employee') {
+          user.role = 'boss';
+          await user.save();
+        } else if (!shouldBeBoss && user.role === 'boss') {
+          user.role = 'employee';
+          await user.save();
+        }
+      }
+    }
 
     const updatedEmployee = await Employee.findById(id)
       .populate({
@@ -300,5 +375,6 @@ export default {
   updateArchive,
   deleteArchive
 };
+
 
 

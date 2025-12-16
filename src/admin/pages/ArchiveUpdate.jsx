@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { message } from 'antd'
 import { getArchives, updateArchive, getOrganizations, getPositions, updateOrganization } from '../../services/adminService'
 
 const ArchiveUpdate = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [archives, setArchives] = useState([])
   const [organizations, setOrganizations] = useState([])
   const [positions, setPositions] = useState([])
@@ -32,6 +34,22 @@ const ArchiveUpdate = () => {
   const [submitting, setSubmitting] = useState(false)
   const [managerAction, setManagerAction] = useState('keep') // keep | set | unset
   const [isCurrentManager, setIsCurrentManager] = useState(false)
+  const [orgLevel1Id, setOrgLevel1Id] = useState('')
+  const [orgLevel2Id, setOrgLevel2Id] = useState('')
+  const [orgLevel3Id, setOrgLevel3Id] = useState('')
+  const orgMap = useMemo(() => {
+    const m = {}
+    organizations.forEach(o => { m[o.id] = o })
+    return m
+  }, [organizations])
+  const level2Options = useMemo(() => {
+    if (!orgLevel1Id) return []
+    return organizations.filter(o => o.level === 2 && o.parentId === orgLevel1Id)
+  }, [organizations, orgLevel1Id])
+  const level3Options = useMemo(() => {
+    if (!orgLevel2Id) return []
+    return organizations.filter(o => o.level === 3 && o.parentId === orgLevel2Id)
+  }, [organizations, orgLevel2Id])
 
   // 加载数据
   useEffect(() => {
@@ -45,34 +63,23 @@ const ArchiveUpdate = () => {
           getOrganizations(),
           getPositions()
         ])
-        
-        // 处理档案数据
-        const archivesData = archivesRes.data || []
-        const formattedArchives = archivesData.map(archive => ({
-          id: archive._id,
-          name: archive.name,
-          gender: archive.gender,
-          idCard: archive.id_card,
-          phone: archive.phone,
-          email: archive.email,
-          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
-          organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
-          organizationPath: archive.organizationPath || '',
-          positionId: archive.pos_id?._id,
-          positionName: archive.pos_id?.pos_name || '',
-          education: archive.education
-        }))
-        setArchives(formattedArchives)
-        
+
         // 处理机构数据
         const orgsData = orgsRes.data || []
-        const formattedOrgs = orgsData.map(org => ({
-          id: org._id,
-          name: org.org_name,
-          path: org.fullPath || org.org_name, // 如果后端没有fullPath，使用org_name
-          managerId: org.manager_emp_id?._id || org.manager_emp_id || null
-        }))
+        const formattedOrgs = orgsData.map(org => {
+          const parent = org.parent_org_id?._id || org.parent_org_id || org.parent_id?._id || org.parent_id || org.parent || org.parentId || ''
+          return {
+            id: String(org._id),
+            name: org.org_name,
+            path: org.fullPath || org.org_name, // 如果后端没有fullPath，使用org_name
+            managerId: org.manager_emp_id?._id || org.manager_emp_id || null,
+            level: org.org_level,
+            parentId: parent ? String(parent) : ''
+          }
+        })
         setOrganizations(formattedOrgs)
+        const orgMap = {}
+        formattedOrgs.forEach(o => { orgMap[o.id] = o })
         
         // 处理职位数据
         const positionsData = positionsRes.data || []
@@ -82,10 +89,41 @@ const ArchiveUpdate = () => {
           organizationId: pos.org_id?._id || pos.org_id
         }))
         setPositions(formattedPositions)
+
+        // 处理档案数据
+        const archivesData = archivesRes.data || []
+        const formattedArchives = archivesData.map(archive => {
+          const orgId = archive.pos_id?.org_id?._id || archive.pos_id?.org_id
+          const orgPath = orgId ? (orgMap[orgId]?.path || '') : (archive.organizationPath || '')
+          const statusRaw = (() => {
+            if (archive.reviewed) {
+              return ['已驳回', 'rejected', 'reject'].includes(archive.status)
+                ? '已驳回'
+                : '已复核'
+            }
+            return '更改待复核'
+          })()
+          return {
+            id: archive._id,
+            name: archive.name,
+            gender: archive.gender,
+            idCard: archive.id_card,
+            phone: archive.phone,
+            email: archive.email,
+            entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+            organizationId: orgId,
+            organizationPath: orgPath,
+            positionId: archive.pos_id?._id,
+            positionName: archive.pos_id?.pos_name || '',
+            education: archive.education,
+            status: statusRaw
+          }
+        })
+        setArchives(formattedArchives)
         
       } catch (error) {
         console.error('加载数据失败:', error)
-        // 可以在这里添加错误提示
+        messageApi.error(error.message || '加载数据失败')
       } finally {
         setLoading(false)
       }
@@ -104,22 +142,37 @@ const ArchiveUpdate = () => {
   const handleEdit = (archive) => {
     setSelectedArchive(archive)
     setFormData(archive)
-    const filtered = positions.filter(p => p.organizationId === archive.organizationId)
+    // 反推层级
+    const l3 = archive.organizationId ? String(archive.organizationId) : ''
+    const l2 = l3 ? orgMap[l3]?.parentId || '' : ''
+    const l1 = l2 ? orgMap[l2]?.parentId || '' : ''
+    setOrgLevel1Id(l1)
+    setOrgLevel2Id(l2)
+    setOrgLevel3Id(l3)
+    const filtered = positions.filter(p => String(p.organizationId) === l3)
     setAvailablePositions(filtered)
-    computeManagerState(archive.organizationId, archive.id)
+    computeManagerState(l3, archive.id)
     setIsModalOpen(true)
   }
 
-  const handleOrganizationChange = (orgId) => {
-    const filtered = positions.filter(p => p.organizationId === orgId)
+  const handleLevel2Change = (newL2) => {
+    setOrgLevel2Id(newL2)
+    setOrgLevel3Id('')
+    setAvailablePositions([])
+    setFormData({ ...formData, organizationId: '', positionId: null })
+  }
+
+  const handleLevel3Change = (orgId) => {
+    setOrgLevel3Id(orgId)
+    const filtered = positions.filter(p => String(p.organizationId) === String(orgId))
     setAvailablePositions(filtered)
     setFormData({ ...formData, organizationId: orgId, positionId: null })
     computeManagerState(orgId, formData.id || selectedArchive?.id)
   }
 
   const handleSave = async () => {
-    if (!formData.name.trim() || !formData.phone.trim()) {
-      alert('请填写必填项')
+    if (!formData.name?.trim() || !formData.phone?.trim()) {
+      messageApi.warning('请填写必填项')
       return
     }
 
@@ -133,39 +186,35 @@ const ArchiveUpdate = () => {
         phone: formData.phone,
         email: formData.email,
         pos_id: formData.positionId,
-        education: formData.education
+        education: formData.education,
+        // 将负责人变更意图一并提交，由后端在复核环节生效
+        managerAction: managerAction,
+        managerOrgId: formData.organizationId
       }
       
       // 调用API更新档案
       await updateArchive(selectedArchive.id, updateData)
 
-      // 根据操作更新机构负责人
-      if (formData.organizationId && managerAction !== 'keep') {
-        try {
-          await updateOrganization(formData.organizationId, {
-            manager_emp_id: managerAction === 'set' ? selectedArchive.id : null
-          })
-        } catch (e) {
-          console.error('设置机构负责人失败', e)
-        }
-      }
-      
       // 更新本地数据
       const org = organizations.find(o => o.id === formData.organizationId)
       const pos = positions.find(p => p.id === formData.positionId)
       
       setArchives(archives.map(a =>
         a.id === selectedArchive.id
-          ? { ...formData, organizationPath: org?.path || '', positionName: pos?.name || '' }
+          // 前端列表只标记“更改待复核”，不直接显示修改后的信息
+          ? {
+              ...a,
+              status: '更改待复核'
+            }
           : a
       ))
       
       setIsModalOpen(false)
       setManagerAction('keep')
-      alert('档案更新成功，需等待复核')
+      messageApi.success('档案更新成功，需等待复核')
     } catch (error) {
       console.error('更新档案失败:', error)
-      alert(error.message || '档案更新失败')
+      messageApi.error(error.message || '档案更新失败')
     } finally {
       setSubmitting(false)
     }
@@ -173,6 +222,7 @@ const ArchiveUpdate = () => {
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -232,6 +282,7 @@ const ArchiveUpdate = () => {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">联系电话</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">职位</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">所属机构</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">状态</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
@@ -265,6 +316,19 @@ const ArchiveUpdate = () => {
                       <td className="px-6 py-4 text-gray-700">{archive.phone}</td>
                       <td className="px-6 py-4 text-gray-700">{archive.positionName}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{archive.organizationPath}</td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                            archive.status === '已复核'
+                              ? 'bg-green-100 text-green-700'
+                              : archive.status === '已驳回'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}
+                        >
+                          {archive.status || '更改待复核'}
+                        </span>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center">
                           <button
@@ -343,15 +407,30 @@ const ArchiveUpdate = () => {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">更改二级机构</label>
+                  <select
+                    value={orgLevel2Id}
+                    onChange={(e) => handleLevel2Change(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
+                    disabled={!orgLevel1Id}
+                  >
+                    <option value="">请选择二级机构</option>
+                    {level2Options.map(org => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">所属机构 *</label>
                   <select
-                    value={formData.organizationId || ''}
-                    onChange={(e) => handleOrganizationChange(e.target.value)}
+                    value={orgLevel3Id}
+                    onChange={(e) => handleLevel3Change(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
+                    disabled={!orgLevel2Id}
                   >
-                    <option value="">请选择机构</option>
-                    {organizations.map(org => (
-                      <option key={org.id} value={org.id}>{org.path}</option>
+                    <option value="">请选择三级机构</option>
+                    {level3Options.map(org => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
                     ))}
                   </select>
                 </div>

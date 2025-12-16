@@ -22,18 +22,41 @@ const aggregateStandards = async (query = {}) => {
     if (!doc.pos_id) return;
     const posId = doc.pos_id._id.toString();
     if (!map.has(posId)) {
+      // 初始状态：使用存储的 status，若无则根据审核字段推断
+      let status = doc.status || '待复核';
+      if (!doc.status) {
+        if (doc.reviewed) status = '已复核';
+        else if (!doc.reviewed && doc.reviewed_by) status = '已驳回';
+      }
+
       map.set(posId, {
         _id: posId,
         pos_id: doc.pos_id,
         items: {},
         reviewed: doc.reviewed,
+        status,
         created_at: doc.created_at
       });
     }
     const agg = map.get(posId);
     agg.items[doc.item_id._id.toString()] = doc.amount;
+
     // 如果有任一未复核，则整体认为未复核
-    if (!doc.reviewed) agg.reviewed = false;
+    if (!doc.reviewed) {
+      agg.reviewed = false;
+    }
+
+    // 根据单条记录更新聚合状态：
+    // - 只要有通过的记录，整体视为“已复核”
+    // - 否则，只要存在 reviewed_by 且 reviewed=false，则视为“已驳回”
+    if (doc.status) {
+      agg.status = doc.status;
+    } else if (doc.reviewed) {
+      agg.status = '已复核';
+    } else if (!doc.reviewed && doc.reviewed_by && agg.status !== '已复核') {
+      agg.status = '已驳回';
+    }
+
     // 取最早的创建时间
     if (!agg.created_at || doc.created_at < agg.created_at) {
       agg.created_at = doc.created_at;
@@ -96,6 +119,7 @@ export const createSalaryStandard = async (req, res) => {
         item_id: itemId,
         amount: num,
         reviewed: false,
+        status: '待复核',
         created_by: req.user?._id
       });
     }
@@ -129,6 +153,7 @@ export const reviewSalaryStandard = async (req, res) => {
       { is_deleted: false, $or: [{ _id: id }, { pos_id: id }] },
       {
         reviewed: !!approved,
+        status: approved ? '已复核' : '已驳回',
         reviewed_by: req.user?._id,
         reviewed_at: new Date()
       }
@@ -168,11 +193,39 @@ export const deleteSalaryStandard = async (req, res) => {
   }
 };
 
+// @desc 撤回薪酬标准（按职位聚合撤回）
+// @route PUT /api/admin/salary-standards/:id/withdraw
+export const withdrawSalaryStandard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    // 兼容传入具体标准记录ID或职位ID
+    const updated = await SalaryStandard.updateMany(
+      { is_deleted: false, $or: [{ _id: id }, { pos_id: id }] },
+      {
+        reviewed: false,
+        status: '已撤回',
+        reviewed_by: req.user?._id,
+        reviewed_at: new Date()
+      }
+    );
+
+    if (!updated.matchedCount) {
+      return errorResponse(res, '薪酬标准不存在', 404);
+    }
+
+    successResponse(res, null, '薪酬标准已撤回');
+  } catch (error) {
+    console.error('Withdraw salary standard error:', error);
+    errorResponse(res, error.message || '撤回失败', 500);
+  }
+};
+
 export default {
   getSalaryStandards,
   createSalaryStandard,
   reviewSalaryStandard,
-  deleteSalaryStandard
+  deleteSalaryStandard,
+  withdrawSalaryStandard
 };
 
 

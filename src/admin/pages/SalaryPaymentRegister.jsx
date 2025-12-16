@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { message, Spin } from 'antd'
-import { getOrganizations } from '../../services/adminService'
-import { previewSalaryPayments, registerSalaryPayments } from '../../services/adminService'
+import confirm from '../../lib/confirm'
+import { toast } from '../../lib/toast'
+import { getOrganizations, getSalaryItems, getSalaryPayments, getSalaryPaymentDetail, previewSalaryPayments, registerSalaryPayments, withdrawSalaryPaymentBatch } from '../../services/adminService' 
 
 const SalaryPaymentRegister = () => {
-  const [messageApi, contextHolder] = message.useMessage()
   const [payments, setPayments] = useState([])
   const [organizations, setOrganizations] = useState([])
   const [level1, setLevel1] = useState([])
@@ -15,6 +14,12 @@ const SalaryPaymentRegister = () => {
   const [formData, setFormData] = useState({ month: '', organizationId: null })
   const [employeeList, setEmployeeList] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [salaryItems, setSalaryItems] = useState([])
+  const [editingBatch, setEditingBatch] = useState(null) // 记录当前重新登记的批次
+
+  // 从薪酬项目中找出"项目奖金"和"扣款"，用于发放登记阶段的字段标签
+  const bonusItemName = salaryItems.find(it => it.item_name === '项目奖金')?.item_name || '奖励金额'
+  const deductionItemName = salaryItems.find(it => it.item_name === '扣款')?.item_name || '应扣金额'
 
   const loadOrganizations = useCallback(async () => {
     try {
@@ -31,14 +36,54 @@ const SalaryPaymentRegister = () => {
       }
     } catch (error) {
       console.error(error)
-      messageApi.error('获取机构列表失败')
+      toast.error('获取机构列表失败')
     }
-  }, [messageApi])
+  }, [])
+
+  const loadSalaryItems = useCallback(async () => {
+    try {
+      const res = await getSalaryItems()
+      if (res.success) {
+        setSalaryItems(res.data || [])
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }, [])
 
   const handleAdd = () => {
+    setEditingBatch(null)
     setEmployeeList([])
     setIsModalOpen(true)
   }
+
+  const loadPayments = useCallback(async () => {
+    try {
+      console.log('=== loadPayments 开始加载 ===');
+      const res = await getSalaryPayments()
+      if (res.success) {
+        const list = res.data || res.list || []
+        console.log('从API获取的原始数据:', list);
+        const normalized = list.map(p => ({
+          id: p.batchId || p._id || p.batch_id,
+          month: p.month,
+          organizationId: p.organizationId,
+          organizationPath: p.organizationName || '',
+          employeeCount: p.employeeCount,
+          totalAmount: p.totalAmount || 0,
+          status: p.status || (p.reviewed ? '已复核' : '待复核'),
+          createTime: p.created_at || p.createTime || ''
+        }))
+        console.log('标准化后的批次数据:', normalized);
+        setPayments(normalized)
+      } else {
+        console.error('API返回失败:', res);
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || '获取发放批次失败')
+    }
+  }, [])
 
   const handleLoadEmployees = useCallback(async () => {
     if (!formData.organizationId) return
@@ -58,22 +103,24 @@ const SalaryPaymentRegister = () => {
           deductionAmount: 0
         }))
         setEmployeeList(list)
-        messageApi.success('已加载员工标准薪酬')
+        toast.success('已加载员工标准薪酬')
       } else {
-        messageApi.error(res.message || '加载员工失败')
+        toast.error(res.message || '加载员工失败')
       }
     } catch (error) {
       console.error(error)
-      messageApi.error(error.message || '加载员工失败')
+      toast.error(error.message || '加载员工失败')
     }
-  }, [formData.month, formData.organizationId, messageApi])
+  }, [formData.month, formData.organizationId])
 
   useEffect(() => {
-    // 初始化月份和机构列表
+    // 初始化月份和机构列表、薪酬项目
     const currentMonth = new Date().toISOString().slice(0, 7)
     setFormData({ month: currentMonth, organizationId: null })
     loadOrganizations()
-  }, [loadOrganizations])
+    loadSalaryItems()
+    loadPayments()
+  }, [loadOrganizations, loadSalaryItems, loadPayments])
 
   useEffect(() => {
     if (formData.organizationId) {
@@ -162,7 +209,50 @@ const SalaryPaymentRegister = () => {
 
   const handleSave = async () => {
     if (!formData.month || !formData.organizationId || employeeList.length === 0) {
-      messageApi.warning('请填写完整信息并加载员工列表')
+      toast.warning('请填写完整信息并加载员工列表')
+      return
+    }
+    
+    // 添加调试信息
+    console.log('=== handleSave 调试信息 ===');
+    console.log('formData:', formData);
+    console.log('editingBatch:', editingBatch);
+    console.log('所有批次 payments:', payments.map(p => ({
+      id: p.id,
+      month: p.month,
+      status: p.status,
+      organizationId: p.organizationId
+    })));
+    
+    // 同一月份只允许存在未通过的批次：若已存在非"已驳回/已撤回"，禁止登记
+    const hasConflict = payments.some(p => {
+      console.log(`检查批次 ${p.id}: month=${p.month}, status=${p.status}, org=${p.organizationId}`);
+      if (p.month !== formData.month) {
+        console.log(`  -> 月份不匹配: ${p.month} !== ${formData.month}`);
+        return false;
+      }
+      if (editingBatch && editingBatch === p.id) {
+        console.log(`  -> 正在编辑的批次，跳过`);
+        return false;
+      }
+      // 忽略已驳回和已撤回的批次
+      if (['已驳回', '已撤回'].includes(p.status)) {
+        console.log(`  -> 状态为已驳回/已撤回，跳过`);
+        return false;
+      }
+      console.log(`  -> 发现冲突批次!`);
+      return true;
+    })
+    
+    console.log('hasConflict:', hasConflict);
+    if (hasConflict) {
+      const conflictBatches = payments.filter(p => 
+        p.month === formData.month && 
+        !(editingBatch && editingBatch === p.id) && 
+        !['已驳回', '已撤回'].includes(p.status)
+      );
+      console.log('冲突的批次详情:', conflictBatches);
+      toast.warning('该月份已有未驳回的发放批次，无法重复登记')
       return
     }
     try {
@@ -178,34 +268,89 @@ const SalaryPaymentRegister = () => {
       }
       const res = await registerSalaryPayments(payload)
       if (res.success) {
-        messageApi.success('薪酬发放登记成功')
-        // 追加到列表展示
-        const org = organizations.find(o => o._id === formData.organizationId)
-        const newPayment = {
-          id: Date.now(),
-          month: formData.month,
-          organizationPath: org ? org.org_name : '',
-          employeeCount: employeeList.length,
-          totalAmount: employeeList.reduce((sum, emp) => sum + calcActualSalary(emp), 0),
-          status: 'pending',
-          createTime: new Date().toLocaleString('zh-CN', { hour12: false })
-        }
-        setPayments([newPayment, ...payments])
+        toast.success('薪酬发放登记成功')
+        // 重新加载批次列表，确保状态/金额正确且不叠加
+        await loadPayments()
         setIsModalOpen(false)
+        setEditingBatch(null)
       } else {
-        messageApi.error(res.message || '登记失败')
+        toast.error(res.message || '登记失败')
       }
     } catch (error) {
       console.error(error)
-      messageApi.error(error.message || '登记失败')
+      toast.error(error.message || '登记失败')
     } finally {
       setSubmitting(false)
     }
   }
 
+  const handleWithdraw = async (payment) => {
+    const ok = await confirm({ title: '确认撤回该批次？', description: '撤回后可重新登记同月批次，需重新复核。', okText: '撤回', cancelText: '取消' })
+    if (!ok) return
+    try {
+      console.log('=== handleWithdraw 调试信息 ===');
+      console.log('撤回前批次状态:', payment);
+      const res = await withdrawSalaryPaymentBatch(payment.id)
+      if (res.success) {
+        console.log('撤回成功，重新加载批次列表...');
+        toast.success('已撤回')
+        await loadPayments()
+        console.log('撤回后批次列表:', payments.map(p => ({
+          id: p.id,
+          month: p.month,
+          status: p.status
+        })));
+      } else {
+        toast.error(res.message || '撤回失败')
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || '撤回失败')
+    }
+  }
+
+  const handleReapply = async (payment) => {
+    try {
+      const detailRes = await getSalaryPaymentDetail(payment.id)
+      if (!detailRes.success) {
+        toast.error(detailRes.message || '获取批次详情失败')
+        return
+      }
+      const data = detailRes.data
+      setEditingBatch(payment.id)
+      setFormData({
+        month: data.month,
+        organizationId: data.organizationId || payment.organizationId || null
+      })
+      // 回填机构级联
+      const orgId = data.organizationId || payment.organizationId
+      if (orgId) {
+        const org3 = organizations.find(o => String(o._id) === String(orgId))
+        if (org3) {
+          const org2Id = typeof org3.parent_org_id === 'object' ? org3.parent_org_id?._id : org3.parent_org_id
+          const org2 = organizations.find(o => String(o._id) === String(org2Id))
+          const org1Id = org2 ? (typeof org2.parent_org_id === 'object' ? org2.parent_org_id?._id : org2.parent_org_id) : ''
+          setSelectedOrg({ l1: org1Id ? String(org1Id) : '', l2: org2Id ? String(org2Id) : '', l3: String(orgId) })
+        }
+      }
+      const list = (data.employees || []).map(emp => ({
+        id: emp.empId,
+        name: emp.name,
+        positionName: emp.positionName,
+        baseSalary: emp.baseAmount,
+        items: emp.items || [],
+        bonusAmount: emp.bonusAmount || 0,
+        deductionAmount: emp.deductionAmount || 0
+      }))
+      setEmployeeList(list)
+      setIsModalOpen(true)
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || '加载批次详情失败')
+    }
+  }
+
   return (
-    <>
-      {contextHolder}
     <div className="h-full bg-[#fafafa] p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -232,7 +377,7 @@ const SalaryPaymentRegister = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500 mb-2">待复核</p>
-                <p className="text-3xl font-semibold text-gray-900">{payments.filter(p => p.status === 'pending').length}</p>
+                <p className="text-3xl font-semibold text-gray-900">{payments.filter(p => p.status === 'pending' || p.status === '待复核').length}</p>
               </div>
               <div className="w-14 h-14 rounded-2xl bg-orange-50 flex items-center justify-center text-3xl">⏳</div>
             </div>
@@ -258,6 +403,7 @@ const SalaryPaymentRegister = () => {
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">发放总额</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">状态</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">登记时间</th>
+                <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -276,9 +422,39 @@ const SalaryPaymentRegister = () => {
                     <td className="px-6 py-4 text-gray-700">{payment.employeeCount}人</td>
                     <td className="px-6 py-4 text-gray-900 font-semibold">¥{payment.totalAmount.toLocaleString()}</td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">⏳ 待复核</span>
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                        payment.status === '已驳回'
+                          ? 'bg-red-100 text-red-700'
+                          : payment.status === '已复核'
+                          ? 'bg-green-100 text-green-700'
+                          : payment.status === '已撤回'
+                          ? 'bg-gray-100 text-gray-700'
+                          : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {payment.status || '待复核'}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{payment.createTime}</td>
+                    <td className="px-6 py-4 text-center space-x-2">
+                      {(payment.status === '已驳回' || payment.status === '已撤回') ? (
+                        <button
+                          onClick={() => handleReapply(payment)}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-[#59168b] hover:bg-[#6d1fa7] rounded-lg cursor-pointer"
+                        >
+                          重新登记
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                      {payment.status !== '已撤回' && payment.status !== '已驳回' && (
+                        <button
+                          onClick={() => handleWithdraw(payment)}
+                          className="px-3 py-1.5 text-xs font-medium text-[#59168b] bg-white border border-[#59168b]/50 hover:bg-[#59168b]/10 rounded-lg cursor-pointer"
+                        >
+                          撤回
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -371,11 +547,11 @@ const SalaryPaymentRegister = () => {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-gray-600 mb-1 block">奖励金额</label>
+                            <label className="text-xs text-gray-600 mb-1 block">{bonusItemName}</label>
                             <input type="number" value={emp.bonusAmount} onChange={(e) => handleBonusChange(emp.id, e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#59168b]" min="0" step="100" />
                           </div>
                           <div>
-                            <label className="text-xs text-gray-600 mb-1 block">应扣金额</label>
+                            <label className="text-xs text-gray-600 mb-1 block">{deductionItemName}</label>
                             <input type="number" value={emp.deductionAmount} onChange={(e) => handleDeductionChange(emp.id, e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#59168b]" min="0" step="100" />
                           </div>
                         </div>
@@ -408,7 +584,6 @@ const SalaryPaymentRegister = () => {
         </div>
       )}
     </div>
-    </>
   )
 }
 

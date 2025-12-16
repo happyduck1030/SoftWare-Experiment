@@ -202,6 +202,14 @@ export const reviewSalaryStandard = async (id, approved) => {
   return response;
 };
 
+// 撤回薪酬标准
+export const withdrawSalaryStandard = async (id) => {
+  console.log('[API] 撤回薪酬标准', id);
+  const response = await api.put(`/admin/salary-standards/${id}/withdraw`);
+  console.log('[API Response] 撤回薪酬标准', response);
+  return response;
+};
+
 // 更新薪酬标准
 export const updateSalaryStandard = async (id, data) => {
   console.log('[API] 更新薪酬标准', id, data);
@@ -257,6 +265,14 @@ export const reviewSalaryPayment = async (batchId, approved) => {
   console.log('[API] 复核薪酬发放', batchId, approved);
   const response = await api.put(`/admin/salary-payments/batch/${batchId}/review`, { approved });
   console.log('[API Response] 复核薪酬发放', response);
+  return response;
+};
+
+// 撤回薪酬发放批次
+export const withdrawSalaryPaymentBatch = async (batchId) => {
+  console.log('[API] 撤回薪酬发放批次', batchId);
+  const response = await api.put(`/admin/salary-payments/batch/${batchId}/withdraw`);
+  console.log('[API Response] 撤回薪酬发放批次', response);
   return response;
 };
 

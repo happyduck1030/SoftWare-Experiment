@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import confirm from '../../lib/confirm'
+import { toast } from '../../lib/toast'
 import { getPositions, createPosition, updatePosition, deletePosition, getOrganizations } from '../../services/adminService'
 
 const PositionSettings = () => {
@@ -165,28 +167,29 @@ const PositionSettings = () => {
   }
 
   const handleDelete = async (id) => {
-    if (window.confirm('确定要删除这个职位吗？')) {
-      try {
-        setSubmitting(true)
-        await deletePosition(id)
-        setPositions(positions.filter(p => p.id !== id))
-        alert('职位删除成功')
-      } catch (error) {
-        console.error('删除职位失败:', error)
-        alert(error.message || '职位删除失败')
-      } finally {
-        setSubmitting(false)
-      }
+    const ok = await confirm({ title: '确认删除', description: '确定要删除这个职位吗？', okText: '确定', cancelText: '取消' })
+    if (!ok) return
+
+    try {
+      setSubmitting(true)
+      await deletePosition(id)
+      setPositions(positions.filter(p => p.id !== id))
+      toast.success('职位删除成功')
+    } catch (error) {
+      console.error('删除职位失败:', error)
+      toast.error(error.message || '职位删除失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      alert('请输入职位名称')
+      toast.warning('请输入职位名称')
       return
     }
     if (!formData.orgLevel3Id) {
-      alert('请选择三级机构')
+      toast.warning('请选择三级机构')
       return
     }
 
@@ -245,10 +248,10 @@ const PositionSettings = () => {
 
       setIsModalOpen(false)
       setFormData({ name: '', organizationId: null })
-      alert(modalMode === 'add' ? '职位创建成功' : '职位更新成功')
+      toast.success(modalMode === 'add' ? '职位创建成功' : '职位更新成功')
     } catch (error) {
       console.error('保存职位失败:', error)
-      alert(error.message || '保存失败')
+      toast.error(error.message || '保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -545,7 +548,7 @@ const PositionSettings = () => {
 
               <div className="bg-gray-50 rounded-xl p-4">
                 <div className="flex items-start space-x-3">
-                  <div className="w-5 h-5 rounded-full bg-[#59168b]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-5 h-5 rounded-full bg-[#59168b]/10 flex items-center justify-center shrink-0 mt-0.5">
                     <svg className="w-3 h-3 text-[#59168b]" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>

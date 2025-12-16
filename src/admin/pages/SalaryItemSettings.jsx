@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
+import { message } from 'antd'
 import { getSalaryItems, createSalaryItem, updateSalaryItem, deleteSalaryItem } from '../../services/adminService'
 
 const SalaryItemSettings = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [salaryItems, setSalaryItems] = useState([])
   const [loading, setLoading] = useState(true)
   
@@ -27,6 +29,7 @@ const SalaryItemSettings = () => {
 
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('all')
+  const [deleteTarget, setDeleteTarget] = useState(null) // { id, name }
 
   // 加载数据
   useEffect(() => {
@@ -47,7 +50,7 @@ const SalaryItemSettings = () => {
         setSalaryItems(formattedItems)
       } catch (error) {
         console.error('加载薪酬项目数据失败:', error)
-        // 可以在这里添加错误提示
+        messageApi.error(error.message || '加载薪酬项目数据失败')
       } finally {
         setLoading(false)
       }
@@ -74,25 +77,33 @@ const SalaryItemSettings = () => {
     setIsModalOpen(true)
   }
 
-  const handleDelete = async (id) => {
-    if (window.confirm('确定要删除这个薪酬项目吗？')) {
-      try {
-        setSubmitting(true)
-        await deleteSalaryItem(id)
-        setSalaryItems(salaryItems.filter(item => item.id !== id))
-        alert('薪酬项目删除成功')
-      } catch (error) {
-        console.error('删除薪酬项目失败:', error)
-        alert(error.message || '薪酬项目删除失败')
-      } finally {
-        setSubmitting(false)
+  const handleDeleteClick = (item) => {
+    setDeleteTarget({ id: item.id, name: item.name })
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      setSubmitting(true)
+      const res = await deleteSalaryItem(deleteTarget.id)
+      if (res?.success) {
+        setSalaryItems(prev => prev.filter(item => item.id !== deleteTarget.id))
+        messageApi.success(res.message || '薪酬项目删除成功')
+      } else {
+        messageApi.error(res?.message || '薪酬项目删除失败')
       }
+    } catch (error) {
+      console.error('删除薪酬项目失败:', error)
+      messageApi.error(error.message || '薪酬项目删除失败')
+    } finally {
+      setSubmitting(false)
+      setDeleteTarget(null)
     }
   }
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      alert('请输入薪酬项目名称')
+      messageApi.warning('请输入薪酬项目名称')
       return
     }
 
@@ -109,17 +120,27 @@ const SalaryItemSettings = () => {
         
         // 调用API创建薪酬项目
         const response = await createSalaryItem(createData)
-        const newItemData = response.data
-        
-        // 转换为前端格式
-        const newItem = {
-          id: newItemData._id,
-          name: newItemData.item_name,
-          type: newItemData.is_active ? 'fixed' : 'floating',
-          description: newItemData.description || '',
-          createTime: newItemData.created_at ? new Date(newItemData.created_at).toISOString().split('T')[0] : ''
+        if (!response?.success) {
+          messageApi.error(response?.message || '薪酬项目创建失败')
+        } else {
+          const newItemData = response.data
+          // 转换为前端格式
+          const newItem = {
+            id: newItemData._id,
+            name: newItemData.item_name,
+            type: newItemData.is_active ? 'fixed' : 'floating',
+            description: newItemData.description || '',
+            createTime: newItemData.created_at ? new Date(newItemData.created_at).toISOString().split('T')[0] : ''
+          }
+
+          // 如果是“恢复已删除项目”，列表中可能已存在同 id，统一按 id 覆盖
+          setSalaryItems(prev =>
+            prev.some(it => it.id === newItem.id)
+              ? prev.map(it => (it.id === newItem.id ? newItem : it))
+              : [...prev, newItem]
+          )
+          messageApi.success(response.message || '薪酬项目保存成功')
         }
-        setSalaryItems([...salaryItems, newItem])
       } else {
         // 准备提交给后端的数据
         const updateData = {
@@ -129,22 +150,25 @@ const SalaryItemSettings = () => {
         }
         
         // 调用API更新薪酬项目
-        await updateSalaryItem(selectedItem.id, updateData)
-        
-        // 更新本地状态
-        setSalaryItems(salaryItems.map(item =>
-          item.id === selectedItem.id
-            ? { ...item, name: formData.name, type: formData.type, description: formData.description }
-            : item
-        ))
+        const response = await updateSalaryItem(selectedItem.id, updateData)
+        if (!response?.success) {
+          messageApi.error(response?.message || '薪酬项目更新失败')
+        } else {
+          // 更新本地状态
+          setSalaryItems(salaryItems.map(item =>
+            item.id === selectedItem.id
+              ? { ...item, name: formData.name, type: formData.type, description: formData.description }
+              : item
+          ))
+          messageApi.success(response.message || '薪酬项目更新成功')
+        }
       }
 
       setIsModalOpen(false)
       setFormData({ name: '', type: 'fixed', description: '' })
-      alert(modalMode === 'add' ? '薪酬项目创建成功' : '薪酬项目更新成功')
     } catch (error) {
       console.error('保存薪酬项目失败:', error)
-      alert(error.message || '保存失败')
+      messageApi.error(error.message || '保存失败')
     } finally {
       setSubmitting(false)
     }
@@ -162,6 +186,7 @@ const SalaryItemSettings = () => {
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -302,7 +327,7 @@ const SalaryItemSettings = () => {
                             编辑
                           </button>
                           <button
-                            onClick={() => handleDelete(item.id)}
+                            onClick={() => handleDeleteClick(item)}
                             className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors duration-150 cursor-pointer"
                           >
                             删除
@@ -318,7 +343,7 @@ const SalaryItemSettings = () => {
         </div>
       </div>
 
-      {/* 模态框 */}
+      {/* 新增/编辑模态框 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -407,6 +432,36 @@ const SalaryItemSettings = () => {
                 className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] disabled:bg-gray-400 text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
               >
                 {submitting ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除确认弹窗（自定义覆盖层，兼容 React 19） */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm">
+            <div className="p-6 space-y-3">
+              <h3 className="text-lg font-semibold text-gray-900">确认删除</h3>
+              <p className="text-sm text-gray-600">
+                确定要删除薪酬项目「{deleteTarget.name}」吗？删除后将无法直接使用该项目。
+              </p>
+            </div>
+            <div className="flex gap-2 px-6 pb-6">
+              <button
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                onClick={() => setDeleteTarget(null)}
+                disabled={submitting}
+              >
+                取消
+              </button>
+              <button
+                className="flex-1 px-4 py-2 rounded-lg text-white bg-red-500 hover:bg-red-600 disabled:bg-red-300 cursor-pointer"
+                onClick={handleConfirmDelete}
+                disabled={submitting}
+              >
+                确认删除
               </button>
             </div>
           </div>

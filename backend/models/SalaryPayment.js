@@ -25,6 +25,15 @@ const salaryPaymentSchema = new mongoose.Schema({
     required: [true, '批次ID不能为空'],
     index: true
   },
+  org_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization'
+  },
+  // 审核状态：待复核 / 已复核 / 已驳回
+  status: {
+    type: String,
+    default: '待复核'
+  },
   reviewed: {
     type: Boolean,
     default: false

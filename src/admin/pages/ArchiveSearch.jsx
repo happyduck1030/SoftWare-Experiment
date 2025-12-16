@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { getArchives, getOrganizations, getPositions } from '../../services/adminService'
 
 const ArchiveSearch = () => {
@@ -39,31 +39,18 @@ const ArchiveSearch = () => {
           getPositions()
         ])
         
-        // 处理档案数据
-        const archivesData = archivesRes.data || []
-        const formattedArchives = archivesData.map(archive => ({
-          id: archive._id,
-          name: archive.name,
-          gender: archive.gender,
-          idCard: archive.id_card,
-          phone: archive.phone,
-          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
-          organizationPath: archive.organizationPath || '',
-          positionName: archive.pos_id?.pos_name || '',
-          organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
-          positionId: archive.pos_id?._id,
-          status: archive.reviewed ? 'approved' : 'pending'
-        }))
-        setArchives(formattedArchives)
-        setFilteredArchives(formattedArchives)
-        
         // 处理机构数据
         const orgsData = orgsRes.data || []
-        const formattedOrgs = orgsData.map(org => ({
-          id: org._id,
-          name: org.org_name,
-          path: org.fullPath || org.org_name
-        }))
+        const formattedOrgs = orgsData.map(org => {
+          const parent = org.parent_org_id?._id || org.parent_org_id || org.parent_id?._id || org.parent_id || org.parent || org.parentId || ''
+          return {
+            id: String(org._id),
+            name: org.org_name,
+            level: org.org_level,
+            path: org.fullPath || org.org_name,
+            parentId: parent ? String(parent) : ''
+          }
+        })
         setOrganizations(formattedOrgs)
         
         // 处理职位数据
@@ -74,6 +61,53 @@ const ArchiveSearch = () => {
           organizationId: pos.org_id?._id || pos.org_id
         }))
         setPositions(formattedPositions)
+
+        // 构建机构 Map，计算路径
+        const orgMap = {}
+        formattedOrgs.forEach(o => { orgMap[o.id] = o })
+
+        const buildPath = (orgId) => {
+          const names = []
+          let cur = orgMap[orgId]
+          while (cur) {
+            names.unshift(cur.name)
+            cur = orgMap[cur.parentId]
+          }
+          return {
+            path: names.join(' / '),
+            levels: names
+          }
+        }
+
+        // 处理档案数据
+        const archivesData = archivesRes.data || []
+        const formattedArchives = archivesData.map(archive => {
+          const orgId = archive.pos_id?.org_id?._id || archive.pos_id?.org_id
+          const { path, levels } = orgId ? buildPath(String(orgId)) : { path: '', levels: [] }
+          const statusRaw = archive.status || (archive.reviewed ? '已复核' : '待复核')
+          const status =
+            statusRaw === '已驳回'
+              ? '已驳回'
+              : archive.reviewed
+              ? '已复核'
+              : '待复核'
+          return {
+            id: archive._id,
+            name: archive.name,
+            gender: archive.gender,
+            idCard: archive.id_card,
+            phone: archive.phone,
+            entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+            organizationPath: path,
+            organizationLevels: levels,
+            positionName: archive.pos_id?.pos_name || '',
+            organizationId: orgId ? String(orgId) : '',
+            positionId: archive.pos_id?._id,
+            status
+          }
+        })
+        setArchives(formattedArchives)
+        setFilteredArchives(formattedArchives)
         
       } catch (error) {
         console.error('加载数据失败:', error)
@@ -108,12 +142,22 @@ const ArchiveSearch = () => {
   }
 
   return (
-    <div className="h-full bg-[#fafafa] p-8">
+    <div className="h-full bg-gradient-to-b from-[#f8f9ff] via-white to-[#f9fbff] p-8">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 搜索卡片 */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">档案查询</h2>
-          
+        <div className="bg-white/80 backdrop-blur border border-[#e6e9ff] shadow-[0_10px_40px_-24px_rgba(89,22,139,0.35)] rounded-2xl p-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-xs font-semibold text-[#7c3aed] uppercase tracking-[0.08em] mb-2">档案中心</p>
+              <h2 className="text-2xl font-semibold text-gray-900">档案查询</h2>
+              <p className="text-sm text-gray-500 mt-1">按姓名、电话、机构、职位快速筛选员工档案</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#eef2ff] text-[#4f46e5] text-xs font-medium">实时过滤</span>
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#fef3c7] text-[#d97706] text-xs font-medium">层级标签</span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">姓名</label>
@@ -166,13 +210,13 @@ const ArchiveSearch = () => {
           <div className="flex gap-3">
             <button
               onClick={handleSearch}
-              className="px-6 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl transition-colors duration-150 cursor-pointer"
+              className="px-6 py-3 bg-gradient-to-r from-[#6d1fa7] to-[#8b5cf6] hover:from-[#59168b] hover:to-[#7c3aed] text-white font-medium rounded-xl transition-all duration-200 shadow-md cursor-pointer"
             >
               搜索
             </button>
             <button
               onClick={handleReset}
-              className="px-6 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
+              className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition-all duration-150 cursor-pointer"
             >
               重置
             </button>
@@ -181,37 +225,37 @@ const ArchiveSearch = () => {
 
         {/* 统计卡片 */}
         <div className="grid grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:border-[#59168b] transition-colors duration-200 cursor-pointer">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] p-6 hover:border-[#c7d2fe] transition-colors duration-200 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">员工总数</p>
+                <p className="text-xs uppercase text-[#6b7280] tracking-[0.1em] mb-2">员工总数</p>
                 <p className="text-3xl font-semibold text-gray-900">{archives.length}</p>
               </div>
-              <div className="w-14 h-14 rounded-2xl bg-[#59168b]/10 flex items-center justify-center text-3xl">
+              <div className="w-14 h-14 rounded-2xl bg-[#eef2ff] flex items-center justify-center text-2xl text-[#4f46e5]">
                 👥
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:border-blue-500 transition-colors duration-200 cursor-pointer">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] p-6 hover:border-[#bae6fd] transition-colors duration-200 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">查询结果</p>
+                <p className="text-xs uppercase text-[#6b7280] tracking-[0.1em] mb-2">查询结果</p>
                 <p className="text-3xl font-semibold text-gray-900">{filteredArchives.length}</p>
               </div>
-              <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center text-3xl">
+              <div className="w-14 h-14 rounded-2xl bg-[#e0f2fe] flex items-center justify-center text-2xl text-[#0284c7]">
                 🔍
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 hover:border-green-500 transition-colors duration-200 cursor-pointer">
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] p-6 hover:border-[#bbf7d0] transition-colors duration-200 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500 mb-2">本月入职</p>
+                <p className="text-xs uppercase text-[#6b7280] tracking-[0.1em] mb-2">本月入职</p>
                 <p className="text-3xl font-semibold text-gray-900">4</p>
               </div>
-              <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center text-3xl">
+              <div className="w-14 h-14 rounded-2xl bg-[#dcfce7] flex items-center justify-center text-2xl text-[#16a34a]">
                 📈
               </div>
             </div>
@@ -219,10 +263,10 @@ const ArchiveSearch = () => {
         </div>
 
         {/* 结果列表 */}
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+            <table className="w-full border-collapse">
+              <thead className="bg-gradient-to-r from-[#f8fafc] to-[#f4f5ff] border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">姓名</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">性别</th>
@@ -233,7 +277,7 @@ const ArchiveSearch = () => {
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-100">
                 {loading ? (
                   <tr>
                     <td colSpan="7" className="px-6 py-20 text-center">
@@ -243,14 +287,14 @@ const ArchiveSearch = () => {
                   </tr>
                 ) : filteredArchives.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="px-6 py-20 text-center">
-                      <div className="text-6xl mb-4">🔍</div>
+                    <td colSpan="7" className="px-6 py-16 text-center">
+                      <div className="text-6l mb-4">🔍</div>
                       <p className="text-gray-500">未找到符合条件的档案</p>
                     </td>
                   </tr>
                 ) : (
                   filteredArchives.map((archive) => (
-                    <tr key={archive.id} className="hover:bg-gray-50 transition-colors duration-150">
+                    <tr key={archive.id} className="hover:bg-[#f8fafc] transition-colors duration-150">
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 rounded-lg bg-[#59168b]/10 flex items-center justify-center text-sm font-medium text-[#59168b]">
@@ -263,12 +307,52 @@ const ArchiveSearch = () => {
                       <td className="px-6 py-4 text-gray-700">{archive.phone}</td>
                       <td className="px-6 py-4 text-gray-700">{archive.entryDate}</td>
                       <td className="px-6 py-4 text-gray-700">{archive.positionName}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">{archive.organizationPath}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700">
+                        {archive.organizationLevels && archive.organizationLevels.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {archive.organizationLevels.map((lvl, idx) => (
+                              <span
+                                key={`${archive.id}-org-${idx}`}
+                                className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-xs font-medium ${
+                                  idx === 0
+                                    ? 'bg-[#eef2ff] border-[#e0e7ff] text-[#4338ca]'
+                                    : idx === 1
+                                    ? 'bg-[#ecfeff] border-[#cffafe] text-[#0ea5e9]'
+                                    : 'bg-[#fef3c7] border-[#fde68a] text-[#b45309]'
+                                }`}
+                              >
+                                {`L${idx + 1} ${lvl}`}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-500">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center">
+                          <span
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                              archive.status === '已复核'
+                                ? 'bg-green-100 text-green-700'
+                                : archive.status === '已驳回'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-orange-100 text-orange-700'
+                            }`}
+                          >
+                            {archive.status === '已复核'
+                              ? '已复核'
+                              : archive.status === '已驳回'
+                              ? '已驳回'
+                              : '待复核'}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center">
                           <button
                             onClick={() => handleViewDetail(archive)}
-                            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-150 cursor-pointer"
+                            className="px-3 py-1.5 text-xs font-medium text-white bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] hover:from-[#4f46e5] hover:to-[#7c3aed] rounded-lg transition-all duration-150 cursor-pointer whitespace-nowrap shadow-sm inline-flex items-center justify-center"
                           >
                             查看详情
                           </button>

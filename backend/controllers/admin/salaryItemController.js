@@ -71,23 +71,38 @@ export const createSalaryItem = async (req, res) => {
       return errorResponse(res, '项目名称不能为空', 400);
     }
 
-    // 检查项目名称是否已存在
-    const existingItem = await SalaryItem.findOne({
-      item_name,
-      is_deleted: false
-    });
+    // 先检查是否存在同名项目（包含已删除的）
+    const existed = await SalaryItem.findOne({ item_name });
 
-    if (existingItem) {
+    // 1）存在且未删除：直接提示已存在，不允许重复创建
+    if (existed && !existed.is_deleted) {
       return errorResponse(res, '该薪酬项目名称已存在', 400);
     }
 
-    const item = await SalaryItem.create({
-      item_name,
-      description,
-      is_active: is_active !== undefined ? is_active : true
-    });
+    let item;
 
-    successResponse(res, item, '薪酬项目创建成功', 201);
+    if (existed && existed.is_deleted) {
+      // 2）存在但已软删除：视为“复活并覆盖原数据”
+      existed.description = description;
+      if (is_active !== undefined) {
+        existed.is_active = is_active;
+      } else if (!existed.is_active) {
+        // 默认重新启用
+        existed.is_active = true;
+      }
+      existed.is_deleted = false;
+      await existed.save();
+      item = existed;
+    } else {
+      // 3）不存在：正常创建
+      item = await SalaryItem.create({
+        item_name,
+        description,
+        is_active: is_active !== undefined ? is_active : true
+      });
+    }
+
+    successResponse(res, item, existed ? '薪酬项目已恢复并更新' : '薪酬项目创建成功', 201);
   } catch (error) {
     console.error('Create salary item error:', error);
     errorResponse(res, error.message || '薪酬项目创建失败', 500);

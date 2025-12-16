@@ -196,18 +196,64 @@ const SalaryPaymentSearch = () => {
             </div>
 
             <div className="p-6 space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs text-gray-500 mb-1">发放月份</p>
-                  <p className="text-sm font-medium text-gray-900">{selectedBatch.month || '-'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs text-gray-500 mb-1">员工人数</p>
-                  <p className="text-sm font-medium text-gray-900">{selectedBatch.employeeCount || employeeDetails.length}人</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-xs text-gray-500 mb-1">发放总额</p>
-                  <p className="text-sm font-medium text-[#59168b]">¥{(selectedBatch.totalAmount || 0).toLocaleString()}</p>
+              {/* 像素风批次信息卡片（MotherDuck 风格） */}
+              <div className="relative">
+                <div className="absolute inset-0 translate-x-1.5 translate-y-1.5 bg-black/60 rounded-[10px] pointer-events-none" />
+                <div className="relative rounded-[10px] border-[3px] border-black bg-[radial-gradient(circle_at_0_0,#fef9c3,transparent_55%),radial-gradient(circle_at_100%_100%,#bfdbfe,transparent_55%)] px-6 py-5 shadow-[0_0_0_3px_#facc15]">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-black rounded-[4px] flex items-center justify-center text-yellow-300 text-xl">
+                        ★
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-gray-700">
+                          Batch #{selectedBatch.id?.slice?.(-4) || '----'}
+                        </p>
+                        <p className="text-base font-semibold text-gray-900">
+                          {selectedBatch.month || '未知月份'} 薪酬发放批次
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-gray-700 mb-1">Total</p>
+                      <p className="text-2xl font-extrabold text-[#1f2933] drop-shadow-[1px_1px_0_#facc15]">
+                        ¥{(selectedBatch.totalAmount || 0).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 text-[12px] font-mono">
+                    <div className="px-3 py-2 rounded-[6px] bg-white/70 border border-black/10">
+                      <p className="text-[10px] text-gray-600 mb-1">发放月份</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedBatch.month || '-'}
+                      </p>
+                    </div>
+                    <div className="px-3 py-2 rounded-[6px] bg-white/70 border border-black/10">
+                      <p className="text-[10px] text-gray-600 mb-1">员工人数</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedBatch.employeeCount || employeeDetails.length} 人
+                      </p>
+                    </div>
+                    <div className="px-3 py-2 rounded-[6px] bg-[#22c55e]/10 border border-black/10">
+                      <p className="text-[10px] text-gray-700 mb-1">状态</p>
+                      <p className="inline-flex items-center gap-1 text-xs font-semibold text-[#166534]">
+                        <span className="w-2 h-2 bg-[#22c55e] border border-black rounded-[3px]" />
+                        已复核
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between text-[11px] text-gray-700">
+                    <span className="uppercase tracking-[0.18em]">
+                      Pixel Payroll Engine
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-[#ef4444] border border-black rounded-[3px]" />
+                      <span className="w-1.5 h-1.5 bg-[#facc15] border border-black rounded-[3px]" />
+                      <span className="w-1.5 h-1.5 bg-[#22c55e] border border-black rounded-[3px]" />
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -258,4 +304,5 @@ const SalaryPaymentSearch = () => {
 }
 
 export default SalaryPaymentSearch
+
 

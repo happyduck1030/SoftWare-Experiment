@@ -12,6 +12,11 @@ const positionSchema = new mongoose.Schema({
     ref: 'Organization',
     required: [true, '所属机构不能为空']
   },
+  // 是否为机构负责人职位（Boss 职位标记）
+  is_boss: {
+    type: Boolean,
+    default: false
+  },
   description: {
     type: String,
     maxlength: [500, '描述不能超过500个字符']

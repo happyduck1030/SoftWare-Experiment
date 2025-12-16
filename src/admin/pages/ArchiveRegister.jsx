@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { message } from 'antd'
 import { getArchives, createArchive, getOrganizations, getPositions } from '../../services/adminService'
 
 const ArchiveRegister = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [archives, setArchives] = useState([])
   const [organizations, setOrganizations] = useState([])
   const [positions, setPositions] = useState([])
@@ -51,7 +53,9 @@ const ArchiveRegister = () => {
     phone: '',
     email: '',
     entryDate: '',
-    organizationId: null,
+    orgLevel1Id: '',
+    orgLevel2Id: '',
+    orgLevel3Id: '',
     positionId: null,
     education: '本科',
     address: '',
@@ -61,6 +65,60 @@ const ArchiveRegister = () => {
 
   const [availablePositions, setAvailablePositions] = useState([])
   const [submitting, setSubmitting] = useState(false)
+
+  const asStr = useCallback((v) => (v === undefined || v === null ? '' : String(v)), [])
+
+  const OrgDropdown = ({ placeholder, value, onChange, options, disabled }) => {
+    const [open, setOpen] = useState(false)
+    const selected = options.find(o => o.value === value)
+    const display = selected ? selected.label : placeholder
+
+    const toggle = () => {
+      if (!disabled) setOpen(prev => !prev)
+    }
+
+    const handleSelect = (val) => {
+      onChange(val)
+      setOpen(false)
+    }
+
+    return (
+      <div className={`relative ${disabled ? 'opacity-60 pointer-events-none' : ''}`}>
+        <button
+          type="button"
+          onClick={toggle}
+          className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-linear-to-br from-white via-white to-gray-50 shadow-[0_1px_0_rgba(15,23,42,0.02)] flex items-center justify-between text-left text-sm focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent"
+        >
+          <span className={selected ? 'text-gray-900' : 'text-gray-400'}>{display}</span>
+          <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#59168b]/10 text-xs text-[#59168b]">
+            ▾
+          </span>
+        </button>
+        {open && (
+          <div className="absolute z-50 mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl shadow-slate-900/5 max-h-56 overflow-auto">
+            {options.length === 0 ? (
+              <div className="px-4 py-3 text-xs text-gray-500">暂无可选项</div>
+            ) : (
+              options.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleSelect(opt.value)}
+                  className={`w-full px-4 py-2 text-left text-sm transition-colors ${
+                    value === opt.value
+                      ? 'bg-[#59168b]/10 text-[#59168b] font-medium'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // 加载数据
   useEffect(() => {
@@ -77,31 +135,45 @@ const ArchiveRegister = () => {
         
         // 处理档案数据
         const archivesData = archivesRes.data || []
-        const formattedArchives = archivesData.map(archive => ({
-          id: archive._id,
-          name: archive.name,
-          gender: archive.gender,
-          idCard: archive.id_card,
-          phone: archive.phone,
-          email: archive.email,
-          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
-          organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
-          organizationName: archive.pos_id?.org_id?.org_name || '',
-          organizationPath: archive.organizationPath || '',
-          positionId: archive.pos_id?._id,
-          positionName: archive.pos_id?.pos_name || '',
-          status: archive.reviewed ? '已复核' : '待复核',
-          createTime: archive.created_at ? new Date(archive.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
-        }))
+        const formattedArchives = archivesData.map(archive => {
+          const statusRaw = archive.status || (archive.reviewed ? '已复核' : '待复核')
+          const status =
+            statusRaw === '已驳回'
+              ? '已驳回'
+              : archive.reviewed
+              ? '已复核'
+              : '待复核'
+          return {
+            id: archive._id,
+            name: archive.name,
+            gender: archive.gender,
+            idCard: archive.id_card,
+            phone: archive.phone,
+            email: archive.email,
+            entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+            organizationId: archive.pos_id?.org_id?._id || archive.pos_id?.org_id,
+            organizationName: archive.pos_id?.org_id?.org_name || '',
+            organizationPath: archive.organizationPath || '',
+            positionId: archive.pos_id?._id,
+            positionName: archive.pos_id?.pos_name || '',
+            status,
+            createTime: archive.created_at ? new Date(archive.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
+          }
+        })
         setArchives(formattedArchives)
         
         // 处理机构数据
         const orgsData = orgsRes.data || []
-        const formattedOrgs = orgsData.map(org => ({
-          id: org._id,
-          name: org.org_name,
-          path: org.fullPath || org.org_name // 如果后端没有fullPath，使用org_name
-        }))
+        const formattedOrgs = orgsData.map(org => {
+          const parent = org.parent_org_id?._id || org.parent_org_id || org.parent_id?._id || org.parent_id || org.parent || org.parentId || ''
+          return {
+            id: String(org._id),
+            name: org.org_name,
+            level: org.org_level,
+            path: org.fullPath || org.org_name,
+            parentId: parent ? String(parent) : ''
+          }
+        })
         setOrganizations(formattedOrgs)
         
         // 处理职位数据
@@ -132,7 +204,9 @@ const ArchiveRegister = () => {
       phone: '',
       email: '',
       entryDate: '',
-      organizationId: null,
+      orgLevel1Id: '',
+      orgLevel2Id: '',
+      orgLevel3Id: '',
       positionId: null,
       education: '本科',
       address: '',
@@ -143,35 +217,81 @@ const ArchiveRegister = () => {
     setIsModalOpen(true)
   }
 
-  const handleOrganizationChange = (orgId) => {
-    const filtered = positions.filter(p => p.organizationId === orgId)
-    setAvailablePositions(filtered)
-    setFormData({ ...formData, organizationId: orgId, positionId: null })
+  const level1Orgs = useMemo(
+    () => organizations.filter(o => o.level === 1),
+    [organizations]
+  )
+  const level2Orgs = useMemo(
+    () => organizations.filter(o => o.level === 2),
+    [organizations]
+  )
+  const level3Orgs = useMemo(
+    () => organizations.filter(o => o.level === 3),
+    [organizations]
+  )
+
+  const level2Options = useMemo(() => {
+    if (!formData.orgLevel1Id) return []
+    return level2Orgs.filter(o => asStr(o.parentId) === asStr(formData.orgLevel1Id))
+  }, [level2Orgs, formData.orgLevel1Id, asStr])
+
+  const level3Options = useMemo(() => {
+    if (!formData.orgLevel2Id) return []
+    return level3Orgs.filter(o => asStr(o.parentId) === asStr(formData.orgLevel2Id))
+  }, [level3Orgs, formData.orgLevel2Id, asStr])
+
+  const handleOrgLevelChange = (level, value) => {
+    if (level === 1) {
+      setFormData(prev => ({
+        ...prev,
+        orgLevel1Id: value,
+        orgLevel2Id: '',
+        orgLevel3Id: '',
+        positionId: null
+      }))
+      setAvailablePositions([])
+    } else if (level === 2) {
+      setFormData(prev => ({
+        ...prev,
+        orgLevel2Id: value,
+        orgLevel3Id: '',
+        positionId: null
+      }))
+      setAvailablePositions([])
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        orgLevel3Id: value,
+        positionId: null
+      }))
+      const filtered = positions.filter(p => asStr(p.organizationId) === asStr(value))
+      setAvailablePositions(filtered)
+    }
   }
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      alert('请输入姓名')
+      messageApi.warning('请输入姓名')
       return
     }
     if (!formData.idCard.trim()) {
-      alert('请输入身份证号')
+      messageApi.warning('请输入身份证号')
       return
     }
     if (!formData.phone.trim()) {
-      alert('请输入联系电话')
+      messageApi.warning('请输入联系电话')
       return
     }
     if (!formData.entryDate) {
-      alert('请选择入职日期')
+      messageApi.warning('请选择入职日期')
       return
     }
-    if (!formData.organizationId) {
-      alert('请选择所属机构')
+    if (!formData.orgLevel3Id) {
+      messageApi.warning('请选择所属机构（三级机构）')
       return
     }
     if (!formData.positionId) {
-      alert('请选择职位')
+      messageApi.warning('请选择职位')
       return
     }
 
@@ -217,19 +337,20 @@ const ArchiveRegister = () => {
       
       setArchives([formattedArchive, ...archives])
       setIsModalOpen(false)
-      alert('档案登记成功，等待复核')
+      messageApi.success('档案登记成功，等待复核')
     } catch (error) {
       console.error('创建档案失败:', error)
-      alert(error.message || '档案登记失败')
+      messageApi.error(error.message || '档案登记失败')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const pendingCount = archives.filter(a => a.status === 'pending').length
+  const pendingCount = archives.filter(a => a.status === '待复核').length
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -334,11 +455,21 @@ const ArchiveRegister = () => {
                       <td className="px-6 py-4 text-gray-700">{archive.positionName}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">{archive.organizationPath}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          archive.status === '已复核' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                        }`}>
-                           {archive.status === '已复核' ? '✓ 已复核' : '⏳ 待复核'}
-                         </span>
+                        <span
+                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                            archive.status === '已复核'
+                              ? 'bg-green-100 text-green-700'
+                              : archive.status === '已驳回'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-orange-100 text-orange-700'
+                          }`}
+                        >
+                          {archive.status === '已复核'
+                            ? '✓ 已复核'
+                            : archive.status === '已驳回'
+                            ? '✗ 已驳回'
+                            : '⏳ 待复核'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">{archive.createTime}</td>
                     </tr>
@@ -453,30 +584,39 @@ const ArchiveRegister = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-900 mb-2">所属机构 *</label>
-                    <select
-                      value={formData.organizationId || ''}
-                      onChange={(e) => handleOrganizationChange(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
-                    >
-                      <option value="">请选择机构</option>
-                      {organizations.map(org => (
-                        <option key={org.id} value={org.id}>{org.path}</option>
-                      ))}
-                    </select>
+                    <div className="flex flex-col gap-3">
+                      <OrgDropdown
+                        placeholder="一级机构"
+                        value={formData.orgLevel1Id}
+                        onChange={(val) => handleOrgLevelChange(1, val)}
+                        options={level1Orgs.map(org => ({ value: org.id, label: org.name }))}
+                        disabled={false}
+                      />
+                      <OrgDropdown
+                        placeholder="二级机构"
+                        value={formData.orgLevel2Id}
+                        onChange={(val) => handleOrgLevelChange(2, val)}
+                        options={level2Options.map(org => ({ value: org.id, label: org.name }))}
+                        disabled={!formData.orgLevel1Id}
+                      />
+                      <OrgDropdown
+                        placeholder="三级机构"
+                        value={formData.orgLevel3Id}
+                        onChange={(val) => handleOrgLevelChange(3, val)}
+                        options={level3Options.map(org => ({ value: org.id, label: org.name }))}
+                        disabled={!formData.orgLevel2Id}
+                      />
+                    </div>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-900 mb-2">职位 *</label>
-                    <select
+                    <OrgDropdown
+                      placeholder={formData.orgLevel3Id ? '请选择职位' : '请先选择三级机构'}
                       value={formData.positionId || ''}
-                      onChange={(e) => setFormData({ ...formData, positionId: e.target.value })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
-                      disabled={!formData.organizationId}
-                    >
-                      <option value="">请先选择机构</option>
-                      {availablePositions.map(pos => (
-                        <option key={pos.id} value={pos.id}>{pos.name}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setFormData({ ...formData, positionId: val })}
+                      options={availablePositions.map(pos => ({ value: pos.id, label: pos.name }))}
+                      disabled={!formData.orgLevel3Id}
+                    />
                   </div>
                 </div>
               </div>

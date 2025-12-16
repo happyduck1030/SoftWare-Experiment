@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
+import { message, Modal } from 'antd'
 import { getArchives, reviewArchive } from '../../services/adminService'
 
 const ArchiveReview = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [archives, setArchives] = useState([])
   const [loading, setLoading] = useState(true)
   
@@ -48,27 +50,47 @@ const ArchiveReview = () => {
     const loadData = async () => {
       try {
         setLoading(true)
-        const response = await getArchives({ reviewed: false }) // 只获取未复核的档案
+        // 只拉取状态为“待复核”的档案，避免已驳回记录重复出现
+        const response = await getArchives({ status: '待复核' })
         const archivesData = response.data || []
         
         // 处理档案数据
-        const formattedArchives = archivesData.map(archive => ({
-          id: archive._id,
-          name: archive.name,
-          gender: archive.gender,
-          idCard: archive.id_card,
-          phone: archive.phone,
-          email: archive.email,
-          entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
-          organizationPath: archive.organizationPath || '',
-          positionName: archive.pos_id?.pos_name || '',
-          education: archive.education,
-          address: archive.address,
-          emergencyContact: archive.emergency_contact,
-          emergencyPhone: archive.emergency_phone,
-          status: archive.reviewed ? 'approved' : 'pending',
-          createTime: archive.created_at ? new Date(archive.created_at).toLocaleString('zh-CN', { hour12: false }) : ''
-        }))
+        const formattedArchives = archivesData.map(archive => {
+          const isBossByPosition = !!archive.pos_id?.is_boss
+          const isOrgManager =
+            !!archive.pos_id?.org_id?.manager_emp_id &&
+            String(archive.pos_id.org_id.manager_emp_id) === String(archive._id)
+
+          // 默认使用当前实际负责人状态
+          let isBoss = isBossByPosition || isOrgManager
+
+          // 如果有待复核的负责人变更，则以变更后的结果为准：
+          // set -> 变更后应该是负责人；unset -> 变更后应该不是负责人
+          if (archive.pending_manager_action === 'set') {
+            isBoss = true
+          } else if (archive.pending_manager_action === 'unset') {
+            isBoss = false
+          }
+
+          return {
+            id: archive._id,
+            name: archive.name,
+            gender: archive.gender,
+            idCard: archive.id_card,
+            phone: archive.phone,
+            email: archive.email,
+            entryDate: archive.hire_date ? new Date(archive.hire_date).toISOString().split('T')[0] : '',
+            organizationPath: archive.organizationPath || '',
+            positionName: archive.pos_id?.pos_name || '',
+            education: archive.education,
+            address: archive.address,
+            emergencyContact: archive.emergency_contact,
+            emergencyPhone: archive.emergency_phone,
+            status: archive.reviewed ? 'approved' : 'pending',
+            createTime: archive.created_at ? new Date(archive.created_at).toLocaleString('zh-CN', { hour12: false }) : '',
+            isBoss
+          }
+        })
         setArchives(formattedArchives)
       } catch (error) {
         console.error('加载待复核档案失败:', error)
@@ -93,45 +115,52 @@ const ArchiveReview = () => {
   }
 
   const handleApprove = async () => {
-    if (window.confirm('确定通过此档案的复核吗？')) {
-      try {
-        setSubmitting(true)
-        await reviewArchive(selectedArchive.id, true)
+    if (!selectedArchive) return
+    try {
+      setSubmitting(true)
+      const res = await reviewArchive(selectedArchive.id, true)
+      if (res?.success) {
         setArchives(archives.filter(a => a.id !== selectedArchive.id))
         setIsDetailOpen(false)
-        alert('复核通过')
-      } catch (error) {
-        console.error('复核通过失败:', error)
-        alert(error.message || '复核通过失败')
-      } finally {
-        setSubmitting(false)
+        messageApi.success('复核通过')
+      } else {
+        messageApi.error(res?.message || '复核通过失败')
       }
+    } catch (error) {
+      console.error('复核通过失败:', error)
+      messageApi.error(error.message || '复核通过失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   const handleReject = async () => {
     if (!reviewNote.trim()) {
-      alert('请填写驳回原因')
+      messageApi.warning('请填写驳回原因')
       return
     }
-    if (window.confirm('确定驳回此档案吗？')) {
-      try {
-        setSubmitting(true)
-        await reviewArchive(selectedArchive.id, false)
+    if (!selectedArchive) return
+    try {
+      setSubmitting(true)
+      const res = await reviewArchive(selectedArchive.id, false)
+      if (res?.success) {
         setArchives(archives.filter(a => a.id !== selectedArchive.id))
         setIsDetailOpen(false)
-        alert('已驳回')
-      } catch (error) {
-        console.error('复核驳回失败:', error)
-        alert(error.message || '复核驳回失败')
-      } finally {
-        setSubmitting(false)
+        messageApi.success('已驳回')
+      } else {
+        messageApi.error(res?.message || '复核驳回失败')
       }
+    } catch (error) {
+      console.error('复核驳回失败:', error)
+      messageApi.error(error.message || '复核驳回失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -303,6 +332,12 @@ const ArchiveReview = () => {
                   <div className="bg-gray-50 rounded-xl p-4">
                     <p className="text-xs text-gray-500 mb-1">职位</p>
                     <p className="text-sm font-medium text-gray-900">{selectedArchive.positionName}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs text-gray-500 mb-1">是否负责人</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedArchive?.isBoss ? '是' : '否'}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4 col-span-2">
                     <p className="text-xs text-gray-500 mb-1">所属机构</p>

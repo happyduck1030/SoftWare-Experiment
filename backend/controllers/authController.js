@@ -100,10 +100,29 @@ export const login = async (req, res) => {
     user.last_login = new Date();
     await user.save();
 
-    // 检查用户是否是机构负责人
+    // 检查用户是否是机构负责人或负责人职位
     const managedOrg = await user.isBossOfOrganization();
-    if (managedOrg && user.role === 'employee') {
+
+    let isBossByPosition = false;
+    let employeeForRole = null;
+    if (user.emp_id) {
+      employeeForRole = await Employee.findById(user.emp_id).populate({
+        path: 'pos_id',
+        populate: { path: 'org_id' }
+      });
+      if (employeeForRole?.pos_id?.is_boss) {
+        isBossByPosition = true;
+      }
+    }
+
+    const isBoss = !!managedOrg || isBossByPosition;
+
+    if (isBoss && user.role === 'employee') {
       user.role = 'boss';
+      await user.save();
+    } else if (!isBoss && user.role === 'boss') {
+      // 如果既不是机构负责人也不是负责人职位，则降级为普通员工（保留 admin）
+      user.role = 'employee';
       await user.save();
     }
 
@@ -116,11 +135,8 @@ export const login = async (req, res) => {
     };
 
     // 如果用户关联了员工，获取完整的机构信息和上级信息
-    if (user.emp_id) {
-      const employee = user.emp_id;
-      await employee.populate('pos_id');
-      
-      // 获取职位信息
+    if (employeeForRole) {
+      const employee = employeeForRole;
       const position = employee.pos_id;
       
       // 获取机构完整路径
@@ -291,5 +307,6 @@ export const updatePassword = async (req, res) => {
 };
 
 export default { register, login, getMe, updatePassword };
+
 
 
