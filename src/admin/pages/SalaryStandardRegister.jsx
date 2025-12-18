@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { message } from 'antd'
 import confirm from '../../lib/confirm'
-import { toast } from '../../lib/toast'
 import { getSalaryStandards, createSalaryStandard, getOrganizations, getPositions, getSalaryItems, withdrawSalaryStandard } from '../../services/adminService'
 
 const SalaryStandardRegister = () => {
+  const [messageApi, contextHolder] = message.useMessage()
   const [standards, setStandards] = useState([])
   const [organizations, setOrganizations] = useState([])
   const [level1, setLevel1] = useState([])
@@ -162,7 +163,7 @@ const SalaryStandardRegister = () => {
         
       } catch (error) {
         console.error('加载数据失败:', error)
-        toast.error(error.message || '加载薪酬标准相关数据失败')
+        messageApi.error(error.message || '加载薪酬标准相关数据失败')
       } finally {
         setLoading(false)
       }
@@ -218,9 +219,9 @@ const SalaryStandardRegister = () => {
     })
   }
 
-  const handleSave = async () => {
+  const doSave = async () => {
     if (!formData.organizationId || !formData.positionId) {
-      toast.warning('请选择机构和职位')
+      messageApi.warning('请选择机构和职位')
       return
     }
 
@@ -263,11 +264,37 @@ const SalaryStandardRegister = () => {
       })
       setIsModalOpen(false)
       setEditingStandard(null)
-      toast.success('薪酬标准已提交，等待复核')
+      messageApi.success('薪酬标准已提交，等待复核')
     } catch (error) {
       console.error('创建薪酬标准失败:', error)
-      toast.error(error.message || '薪酬标准创建失败')
+      messageApi.error(error.message || '薪酬标准创建失败')
+    } finally {
+      setSubmitting(false)
     }
+  }
+  const handleSave = () => {
+    if (!formData.organizationId || !formData.positionId) {
+      messageApi.warning('请选择机构和职位')
+      return
+    }
+
+    const hasExisting = standards.some(
+      s => String(s.positionId) === String(formData.positionId)
+    )
+
+    if (hasExisting && !editingStandard) {
+      confirm({
+        title: '确认覆盖已有薪酬标准？',
+        description: '该职位已经存在薪酬标准，继续提交将覆盖原标准配置，是否继续？',
+        okText: '继续提交',
+        cancelText: '取消'
+      }).then(ok => {
+        if (ok) doSave()
+      })
+      return
+    }
+
+    doSave()
   }
 
   const getTotalAmount = () => {
@@ -297,27 +324,30 @@ const SalaryStandardRegister = () => {
   }
 
   const handleWithdraw = async (standard) => {
-    const ok = await confirm({ title: '确认撤回该薪酬标准？', description: '撤回后可重新登记，需重新复核。', okText: '撤回', cancelText: '取消' })
+    const ok = await confirm({
+      title: '确认撤回该薪酬标准？',
+      description: '撤回后可重新登记，需重新复核。'
+    })
     if (!ok) return
-
     try {
       const res = await withdrawSalaryStandard(standard.id)
       if (res.success) {
-        toast.success('已撤回')
+        messageApi.success('已撤回')
         setStandards(prev =>
           prev.map(s => s.id === standard.id ? { ...s, status: '已撤回', reviewed: false } : s)
         )
       } else {
-        toast.error(res.message || '撤回失败')
+        messageApi.error(res.message || '撤回失败')
       }
     } catch (error) {
       console.error(error)
-      toast.error(error.message || '撤回失败')
+      messageApi.error(error.message || '撤回失败')
     }
   }
 
   return (
     <div className="h-full bg-[#fafafa] p-8">
+      {contextHolder}
       <div className="max-w-7xl mx-auto space-y-6">
         {/* 顶部卡片 */}
         <div className="bg-white rounded-2xl border border-gray-200 p-8">

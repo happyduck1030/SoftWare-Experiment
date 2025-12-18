@@ -290,9 +290,21 @@ export const getOrganizationInfo = async (req, res) => {
 // @access  Private (Boss)
 export const getSubordinates = async (req, res) => {
   try {
-    // 检查是否是机构负责人
-    const managedOrg = await req.user.isBossOfOrganization();
-    
+    // 优先根据机构负责人关系判断
+    let managedOrg = await req.user.isBossOfOrganization();
+
+    // 如果还没有在机构上配置负责人，但用户角色已经是 boss，
+    // 则默认使用 TA 当前所在的三级机构作为“管理机构”
+    if (!managedOrg && req.user.role === 'boss' && req.user.emp_id) {
+      const emp = await Employee.findById(req.user.emp_id).populate({
+        path: 'pos_id',
+        populate: { path: 'org_id' }
+      });
+      if (emp?.pos_id?.org_id) {
+        managedOrg = await Organization.findById(emp.pos_id.org_id);
+      }
+    }
+
     if (!managedOrg) {
       return errorResponse(res, '您不是任何机构的负责人', 403);
     }
@@ -311,9 +323,9 @@ export const getSubordinates = async (req, res) => {
       is_deleted: false,
       _id: { $ne: req.user.emp_id._id } // 排除自己
     })
-    .populate('pos_id', 'pos_name')
-    .select('name gender phone email hire_date status pos_id')
-    .lean();
+      .populate('pos_id', 'pos_name')
+      .select('name gender phone email hire_date status pos_id address emergency_contact emergency_phone')
+      .lean();
 
     // 获取每个员工的最近薪酬
     const employeesWithSalary = await Promise.all(
@@ -347,6 +359,9 @@ export const getSubordinates = async (req, res) => {
           position: emp.pos_id?.pos_name || '',
           phone: emp.phone || '',
           email: emp.email || '',
+          address: emp.address || '',
+          emergencyContact: emp.emergency_contact || '',
+          emergencyPhone: emp.emergency_phone || '',
           entryDate: emp.hire_date,
           status: emp.status,
           recentSalary: recentPayment[0]?.total || 0

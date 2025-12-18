@@ -135,6 +135,17 @@ export const createArchive = async (req, res) => {
       return errorResponse(res, '该身份证号已存在', 400);
     }
 
+    // 检查手机号是否已存在（如填写）
+    if (phone) {
+      const existingByPhone = await Employee.findOne({
+        phone,
+        is_deleted: false
+      });
+      if (existingByPhone) {
+        return errorResponse(res, '该手机号已存在，请检查是否重复登记', 400);
+      }
+    }
+
     const employee = await Employee.create({
       name,
       gender: gender || '男',

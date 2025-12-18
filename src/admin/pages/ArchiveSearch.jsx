@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { getArchives, getOrganizations, getPositions } from '../../services/adminService'
+import confirm from '../../lib/confirm'
 
 const ArchiveSearch = () => {
   const [archives, setArchives] = useState([])
@@ -23,6 +24,7 @@ const ArchiveSearch = () => {
   })
 
   const [filteredArchives, setFilteredArchives] = useState([])
+  const [orgDropdownOpen, setOrgDropdownOpen] = useState(false)
   const [selectedArchive, setSelectedArchive] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
@@ -40,7 +42,7 @@ const ArchiveSearch = () => {
         ])
         
         // 处理机构数据
-        const orgsData = orgsRes.data || []
+        const orgsData = (orgsRes.data || []).filter(org => org.org_level === 3)
         const formattedOrgs = orgsData.map(org => {
           const parent = org.parent_org_id?._id || org.parent_org_id || org.parent_id?._id || org.parent_id || org.parent || org.parentId || ''
           return {
@@ -180,17 +182,50 @@ const ArchiveSearch = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">所属机构</label>
-              <select
-                value={searchParams.organizationId}
-                onChange={(e) => setSearchParams({ ...searchParams, organizationId: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent transition-all duration-150 cursor-pointer"
-              >
-                <option value="">全部</option>
-                {organizations.map(org => (
-                  <option key={org.id} value={org.id}>{org.path}</option>
-                ))}
-              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-2">所属机构（三级）</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOrgDropdownOpen(prev => !prev)
+                  }
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl flex items-center justify-between text-left focus:outline-none focus:ring-2 focus:ring-[#59168b] focus:border-transparent bg-white"
+                >
+                  <span className={searchParams.organizationId ? 'text-gray-900' : 'text-gray-400'}>
+                    {searchParams.organizationId
+                      ? (organizations.find(o => o.id === searchParams.organizationId)?.path || '全部')
+                      : '全部三级机构'}
+                  </span>
+                  <span className="text-gray-400">▾</span>
+                </button>
+                {orgDropdownOpen && (
+                  <div className="absolute z-50 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchParams({ ...searchParams, organizationId: '' })
+                        setOrgDropdownOpen(false)
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      全部
+                    </button>
+                    {organizations.map(org => (
+                      <button
+                        key={org.id}
+                        type="button"
+                        onClick={() => {
+                          setSearchParams({ ...searchParams, organizationId: org.id })
+                          setOrgDropdownOpen(false)
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        {org.path}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">职位</label>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { message, Spin } from 'antd'
-import { getSalaryStandards, reviewSalaryStandard, getSalaryItems } from '../../services/adminService'
+import confirm from '../../lib/confirm'
+import { getSalaryStandards, reviewSalaryStandard, getSalaryItems, withdrawSalaryStandard } from '../../services/adminService'
 
 const SalaryStandardReview = () => {
   const [messageApi, contextHolder] = message.useMessage()
@@ -73,6 +74,31 @@ const SalaryStandardReview = () => {
     setDetailOpen(true)
   }
 
+  const handleWithdraw = async (standard) => {
+    const ok = await confirm({
+      title: '确认撤回该薪酬标准？',
+      description: '撤回后可重新登记，仍需重新复核。'
+    })
+    if (!ok) return
+    try {
+      const targetId = standard.id || standard._id || standard.pos_id?._id
+      const res = await withdrawSalaryStandard(targetId)
+      if (res.success) {
+        messageApi.success('已撤回')
+        setStandards(prev =>
+          prev.map(s =>
+            s.id === standard.id ? { ...s, status: '已撤回', reviewed: false } : s
+          )
+        )
+      } else {
+        messageApi.error(res.message || '撤回失败')
+      }
+    } catch (e) {
+      console.error(e)
+      messageApi.error(e.message || '撤回失败')
+    }
+  }
+
   const doReview = async () => {
     if (!selected || !confirmState) return
     const approved = confirmState.approved
@@ -132,6 +158,8 @@ const SalaryStandardReview = () => {
         ? 'bg-green-50 text-green-700 border-green-100'
         : s === '已驳回'
         ? 'bg-red-50 text-red-700 border-red-100'
+        : s === '已撤回'
+        ? 'bg-gray-50 text-gray-600 border-gray-200'
         : 'bg-orange-50 text-orange-700 border-orange-100'
     return (
       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${cls}`}>
@@ -211,12 +239,23 @@ const SalaryStandardReview = () => {
                     <td className="px-6 py-4">{renderStatusBadge(standard.status)}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{standard.createTime || ''}</td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleView(standard)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-[#59168b] hover:bg-[#6d1fa7] rounded-lg cursor-pointer whitespace-nowrap"
-                      >
-                        复核
-                      </button>
+                      {standard.status === '已撤回' ? (
+                        <span className="text-xs text-gray-400">—</span>
+                      ) : standard.status === '已复核' ? (
+                        <button
+                          onClick={() => handleWithdraw(standard)}
+                          className="px-4 py-2 text-sm font-medium text-[#59168b] bg-white border border-[#59168b]/50 hover:bg-[#59168b]/10 rounded-lg cursor-pointer whitespace-nowrap"
+                        >
+                          撤回
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleView(standard)}
+                          className="px-4 py-2 text-sm font-medium text-white bg-[#59168b] hover:bg-[#6d1fa7] rounded-lg cursor-pointer whitespace-nowrap"
+                        >
+                          复核
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

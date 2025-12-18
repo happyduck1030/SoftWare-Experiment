@@ -121,11 +121,23 @@ export const createPosition = async (req, res) => {
 export const updatePosition = async (req, res) => {
   try {
     const { id } = req.params;
-    const { pos_name, description, is_boss } = req.body;
+    const { pos_name, description, is_boss, org_id } = req.body;
 
     const position = await Position.findById(id);
     if (!position) {
       return errorResponse(res, '职位不存在', 404);
+    }
+
+    // 如果修改机构，需验证为三级机构，并检查同名冲突
+    if (org_id && String(org_id) !== String(position.org_id)) {
+      const organization = await Organization.findById(org_id);
+      if (!organization) {
+        return errorResponse(res, '机构不存在', 404);
+      }
+      if (organization.org_level !== 3) {
+        return errorResponse(res, '职位只能归属于三级机构', 400);
+      }
+      position.org_id = org_id;
     }
 
     // 更新字段

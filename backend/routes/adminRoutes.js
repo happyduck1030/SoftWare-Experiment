@@ -49,7 +49,8 @@ import {
   listPayments,
   getPaymentDetail,
   reviewPaymentBatch,
-  withdrawPaymentBatch
+  withdrawPaymentBatch,
+  clearAllPayments
 } from '../controllers/admin/salaryPaymentController.js';
 
 const router = express.Router();
@@ -118,6 +119,7 @@ router.get('/salary-payments', listPayments);
 router.get('/salary-payments/:batchId', getPaymentDetail);
 router.put('/salary-payments/batch/:batchId/review', reviewPaymentBatch);
 router.put('/salary-payments/batch/:batchId/withdraw', withdrawPaymentBatch);
+router.delete('/salary-payments', clearAllPayments);
 
 export default router;
 

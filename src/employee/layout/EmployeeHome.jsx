@@ -30,13 +30,16 @@ const EmployeeHome = () => {
     }
   }, [])
 
-  // 根据用户角色动态生成菜单
-  const menuItems = userInfo ? [
-    { name: '个人档案', path: '/employee/archive', icon: '📝' },
-    { name: '组织架构', path: '/employee/organization', icon: '🏢' },
-    { name: '薪酬记录', path: '/employee/salary', icon: '💰' },
-    ...(userInfo.isBoss ? [{ name: '下属管理', path: '/employee/subordinates', icon: '👥' }] : [])
-  ] : []
+  // 根据用户角色动态生成菜单：通过 role === 'boss' 判断是否为机构负责人
+  const isBoss = userInfo?.role === 'boss'
+  const menuItems = userInfo
+    ? [
+        { name: '个人档案', path: '/employee/archive', icon: '📝' },
+        { name: '组织架构', path: '/employee/organization', icon: '🏢' },
+        { name: '薪酬记录', path: '/employee/salary', icon: '💰' },
+        ...(isBoss ? [{ name: '下属管理', path: '/employee/subordinates', icon: '👥' }] : [])
+      ]
+    : []
 
   const isActive = (path) => location.pathname === path
 
@@ -80,7 +83,7 @@ const EmployeeHome = () => {
             </div>
           </div>
           {/* 机构信息 */}
-          {userInfo.organizationPath && (
+              {userInfo.organizationPath && (
             <div className="bg-gray-50 rounded-lg p-2 mt-2">
               <div className="flex items-center space-x-2">
                 <span className="text-xs">🏛️</span>
@@ -88,7 +91,7 @@ const EmployeeHome = () => {
                   {userInfo.organizationPath.level3}
                 </span>
               </div>
-              {userInfo.isBoss && (
+              {isBoss && (
                 <div className="flex items-center space-x-1 mt-1">
                   <span className="text-xs">👑</span>
                   <span className="text-xs text-[#59168b] font-medium">负责人</span>
@@ -157,7 +160,7 @@ const EmployeeHome = () => {
               <Route path="/salary" element={<EmployeeSalary />} />
               <Route
                 path="/subordinates"
-                element={userInfo.isBoss ? <SubordinateManagement /> : <Pixel404 reason="forbidden" />}
+                element={isBoss ? <SubordinateManagement /> : <Pixel404 reason="forbidden" />}
               />
               <Route path="*" element={<Pixel404 />} />
             </Routes>

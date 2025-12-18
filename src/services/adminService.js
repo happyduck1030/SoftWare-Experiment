@@ -236,6 +236,14 @@ export const getSalaryPayments = async (params) => {
   return response;
 };
 
+// 清空所有薪酬发放记录
+export const clearSalaryPayments = async () => {
+  console.log('[API] 清空薪酬发放记录');
+  const response = await api.delete('/admin/salary-payments');
+  console.log('[API Response] 清空薪酬发放记录', response);
+  return response;
+};
+
 // 预览薪酬发放（按机构+月份加载员工及标准薪酬）
 export const previewSalaryPayments = async (params) => {
   console.log('[API] 预览薪酬发放', params);

@@ -7,15 +7,28 @@ import Position from '../../models/Position.js';
 import Organization from '../../models/Organization.js';
 import { successResponse, errorResponse, paginatedResponse } from '../../utils/responseFormatter.js';
 
-// 帮助方法：获取某职位的最新已审核薪酬标准（按生效日期排序）
+// 帮助方法：获取某职位的最新已审核薪酬标准（按项目维度取最新一条）
 const getReviewedStandardsByPosition = async (positionId) => {
-  return await SalaryStandard.find({
+  const docs = await SalaryStandard.find({
     pos_id: positionId,
     reviewed: true,
-    is_deleted: false
+    is_deleted: false,
+    status: { $ne: '已撤回' }
   })
     .populate('item_id', 'item_name description')
     .sort({ effective_date: -1 });
+
+  // 按薪酬项目去重：每个 item 只保留最新 effective_date 的一条记录
+  const map = new Map();
+  docs.forEach(doc => {
+    const key = doc.item_id?._id?.toString();
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, doc);
+    }
+  });
+
+  return Array.from(map.values());
 };
 
 // @desc  预览某机构员工的标准薪酬（含项目明细）
@@ -93,55 +106,18 @@ export const registerPayments = async (req, res) => {
       return errorResponse(res, '机构不存在', 404);
     }
 
-    // 批次唯一性规则：同机构+同月份只能存在一个未驳回/未撤回的批次
+    // 批次唯一性规则：同机构+同月份只能存在一个批次
     const batchId = `BATCH_${month.replace('-', '')}_${org_id}`;
-    console.log(`=== registerPayments 调试信息 ===`);
-    console.log('生成的batchId:', batchId);
-    console.log('请求参数:', { month, org_id, employeeCount: employees.length });
-    
-    // 查找该机构该月份的所有批次
     const existing = await SalaryPayment.find({ batch_id: batchId, is_deleted: false });
-    console.log('existing batches for this org+month:', existing.map(e => ({ 
-      id: e._id, 
-      batch_id: e.batch_id, 
-      status: e.status, 
-      reviewed: e.reviewed 
-    })));
-    
-    // 同时检查该月份的其他机构批次，避免前端逻辑冲突
-    const monthPattern = `BATCH_${month.replace('-', '')}_`;
-    const allMonthBatches = await SalaryPayment.find({ 
-      batch_id: { $regex: `^${monthPattern}` }, 
-      is_deleted: false 
-    });
-    console.log('all batches for this month:', allMonthBatches.map(e => ({ 
-      id: e._id, 
-      batch_id: e.batch_id, 
-      status: e.status, 
-      reviewed: e.reviewed,
-      org_id: e.org_id
-    })));
-    
     if (existing.length) {
-      // 归一化状态：若 status 未设置，则基于 reviewed 字段推断展示状态（与列表页一致）
-      const normalized = existing.map(item => item.status || (item.reviewed ? '已复核' : '待复核'));
-      const statuses = Array.from(new Set(normalized));
-      console.log('normalized statuses for this org+month:', statuses);
-      
-      const hasBlocking = normalized.some(s => !['已驳回', '已撤回'].includes(s));
-      console.log('hasBlocking for this org+month:', hasBlocking);
-      
+      const hasBlocking = existing.some(item => !['已驳回', '已撤回'].includes(item.status));
       if (hasBlocking) {
-        console.error(`RegisterPayments blocked for batchId=${batchId}, statuses=${statuses.join(',')}`);
-        console.error(`RegisterPayments existing records:`, existing.map(e => ({ id: e._id, status: e.status, reviewed: e.reviewed, is_deleted: e.is_deleted })));
-        console.error(`RegisterPayments request payload:`, { month, org_id });
-        return errorResponse(res, `该机构该月份已存在未被驳回/撤回的发放批次，无法重复登记；现有状态：${statuses.join(',')}`, 400);
+        return errorResponse(res, '该月份已存在发放批次，且未被驳回/撤回，无法重复登记', 400);
       } else {
-        // 全部为驳回或已撤回的批次，先清理后重新写入，避免叠加
-        console.info(`Cleaning up old rejected/withdrawn batches for batchId=${batchId} (statuses=${statuses.join(',')})`);
+        // 全部为驳回的批次，先清理后重新写入，避免叠加
         await SalaryPayment.updateMany(
           { batch_id: batchId, is_deleted: false },
-          { $set: { is_deleted: true, deleted_at: new Date(), deleted_by: req.user?._id } }
+          { $set: { is_deleted: true } }
         );
       }
     }
@@ -150,7 +126,7 @@ export const registerPayments = async (req, res) => {
     const bonusItem = await SalaryItem.findOne({ item_name: '项目奖金', is_deleted: false });
     const deductionItem = await SalaryItem.findOne({ item_name: '扣款', is_deleted: false });
     if (!bonusItem || !deductionItem) {
-      return errorResponse(res, '缺少"项目奖金"或"扣款"薪酬项目，请先在薪酬项目中创建', 400);
+      return errorResponse(res, '缺少“项目奖金”或“扣款”薪酬项目，请先在薪酬项目中创建', 400);
     }
 
     const paymentDocs = [];
@@ -238,8 +214,12 @@ export const listPayments = async (req, res) => {
           reviewed: { $min: '$reviewed' },
           status: { $first: '$status' },
           org_id: { $first: '$org_id' },
-          statuses: { $addToSet: '$status' },
-          employeeCount: { $addToSet: '$emp_id' } // 收集所有员工ID
+          employeeIds: { $addToSet: '$emp_id' }
+        }
+      },
+      {
+        $addFields: {
+          employeeCount: { $size: '$employeeIds' }
         }
       },
     {
@@ -257,37 +237,16 @@ export const listPayments = async (req, res) => {
     ];
 
     const raw = await SalaryPayment.aggregate(pipeline);
-    const data = raw.map(item => {
-      // 状态优先级：已撤回 > 已驳回 > 已复核 > 待复核
-      let finalStatus = item.status;
-      if (item.statuses && item.statuses.length > 0) {
-        if (item.statuses.includes('已撤回')) {
-          finalStatus = '已撤回';
-        } else if (item.statuses.includes('已驳回')) {
-          finalStatus = '已驳回';
-        } else if (item.statuses.includes('已复核')) {
-          finalStatus = '已复核';
-        } else if (item.statuses.includes('待复核')) {
-          finalStatus = '待复核';
-        }
-      }
-      
-      // 如果没有状态信息，则基于 reviewed 字段推断
-      if (!finalStatus) {
-        finalStatus = item.reviewed ? '已复核' : '待复核';
-      }
-      
-      return {
-        batchId: item._id,
-        month: item.pay_month ? item.pay_month.toISOString().slice(0, 7) : '',
-        totalAmount: item.totalAmount,
-        employeeCount: item.employeeCount ? item.employeeCount.length : 0, // 使用员工ID集合的大小
-        reviewed: finalStatus === '已复核',
-        status: finalStatus,
-        organizationId: item.org_id,
-        organizationName: item.org?.org_name
-      };
-    });
+    const data = raw.map(item => ({
+      batchId: item._id,
+      month: item.pay_month ? item.pay_month.toISOString().slice(0, 7) : '',
+      totalAmount: item.totalAmount,
+      employeeCount: item.employeeCount,
+      reviewed: item.reviewed,
+      status: item.status || (item.reviewed ? '已复核' : '待复核'),
+      organizationId: item.org_id,
+      organizationName: item.org?.org_name
+    }));
     const total = (await SalaryPayment.aggregate([
       { $match: { is_deleted: false } },
       { $group: { _id: '$batch_id' } },
@@ -303,6 +262,22 @@ export const listPayments = async (req, res) => {
   } catch (error) {
     console.error('List payments error:', error);
     errorResponse(res, error.message || '获取薪酬发放列表失败', 500);
+  }
+};
+
+// @desc 清空所有薪酬发放记录（软删除）
+// @route DELETE /api/admin/salary-payments
+// @access Private/Admin
+export const clearAllPayments = async (req, res) => {
+  try {
+    await SalaryPayment.updateMany(
+      { is_deleted: false },
+      { $set: { is_deleted: true } }
+    );
+    successResponse(res, null, '所有薪酬发放记录已清空');
+  } catch (error) {
+    console.error('Clear payments error:', error);
+    errorResponse(res, error.message || '清空薪酬发放记录失败', 500);
   }
 };
 
@@ -448,11 +423,6 @@ export const withdrawPaymentBatch = async (req, res) => {
         }
       }
     );
-    
-    // 验证撤回是否成功
-    const updated = await SalaryPayment.find({ batch_id: batchId, is_deleted: false });
-    console.log(`WithdrawPaymentBatch verification:`, updated.map(u => ({ id: u._id, status: u.status, reviewed: u.reviewed })));
-    
     return successResponse(res, { batchId, status: '已撤回' }, '批次已撤回');
   } catch (error) {
     console.error('Withdraw payment batch error:', error);

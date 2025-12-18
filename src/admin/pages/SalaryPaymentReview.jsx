@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { message, Modal, Spin } from 'antd'
+import { message, Spin } from 'antd'
+import confirm from '../../lib/confirm'
 import { getSalaryPayments, getSalaryPaymentDetail, reviewSalaryPayment, withdrawSalaryPaymentBatch } from '../../services/adminService'
 
 const SalaryPaymentReview = () => {
@@ -141,6 +142,30 @@ const SalaryPaymentReview = () => {
     setConfirmState({ approved })
   }
 
+  const handleWithdraw = async (payment) => {
+    const ok = await confirm({
+      title: '确认撤回该批次？',
+      description: '撤回后可重新登记同月批次，仍需重新复核。'
+    })
+    if (!ok) return
+    try {
+      const res = await withdrawSalaryPaymentBatch(payment.id)
+      if (res.success) {
+        messageApi.success('已撤回')
+        setPayments(prev =>
+          prev.map(p =>
+            p.id === payment.id ? { ...p, status: '已撤回', reviewed: false } : p
+          )
+        )
+      } else {
+        messageApi.error(res.message || '撤回失败')
+      }
+    } catch (e) {
+      console.error(e)
+      messageApi.error(e.message || '撤回失败')
+    }
+  }
+
   const doConfirm = async () => {
     if (!confirmState || !selectedPayment) return
     const approved = confirmState.approved
@@ -158,9 +183,9 @@ const SalaryPaymentReview = () => {
               : p
           )
         )
-        setSelectedPayment(prev =>
-          prev ? { ...prev, reviewed: approved, status: newStatus } : prev
-        )
+        // 关闭详情弹窗
+        setSelectedPayment(null)
+        setEmployeeDetails([])
         setConfirmState(null)
       } else {
         messageApi.error(res.message || '操作失败')
@@ -173,35 +198,6 @@ const SalaryPaymentReview = () => {
     }
   }
 
-  const handleWithdraw = async () => {
-    if (!selectedPayment) return
-    try {
-      setSubmitting(true)
-      const res = await withdrawSalaryPaymentBatch(selectedPayment.id)
-      if (res.success) {
-        messageApi.success('已撤回')
-        // 更新当前行状态
-        setPayments(prev =>
-          prev.map(p =>
-            p.id === selectedPayment.id
-              ? { ...p, reviewed: false, status: '已撤回' }
-              : p
-          )
-        )
-        setSelectedPayment(prev =>
-          prev ? { ...prev, reviewed: false, status: '已撤回' } : prev
-        )
-      } else {
-        messageApi.error(res.message || '撤回失败')
-      }
-    } catch (e) {
-      console.error(e)
-      messageApi.error(e.message || '撤回失败')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const renderStatusBadge = (reviewed, status) => {
     const s = status || (reviewed ? '已复核' : '待复核')
     const color =
@@ -209,8 +205,6 @@ const SalaryPaymentReview = () => {
         ? 'bg-green-50 text-green-700 border-green-100'
         : s === '已驳回'
         ? 'bg-red-50 text-red-700 border-red-100'
-        : s === '已撤回'
-        ? 'bg-gray-50 text-gray-700 border-gray-100'
         : 'bg-orange-50 text-orange-700 border-orange-100'
     return (
       <span
@@ -292,12 +286,23 @@ const SalaryPaymentReview = () => {
                       {renderStatusBadge(payment.reviewed, payment.status)}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleViewDetail(payment)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-[#59168b] hover:bg-[#6d1fa7] rounded-lg cursor-pointer whitespace-nowrap"
-                      >
-                        复核
-                      </button>
+                      {payment.status === '已撤回' ? (
+                        <span className="text-xs text-gray-400">—</span>
+                      ) : payment.status === '已复核' ? (
+                        <button
+                          onClick={() => handleWithdraw(payment)}
+                          className="px-4 py-2 text-sm font-medium text-[#59168b] bg-white border border-[#59168b]/50 hover:bg-[#59168b]/10 rounded-lg cursor-pointer whitespace-nowrap"
+                        >
+                          撤回
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleViewDetail(payment)}
+                          className="px-4 py-2 text-sm font-medium text-white bg-[#59168b] hover:bg-[#6d1fa7] rounded-lg cursor-pointer whitespace-nowrap"
+                        >
+                          复核
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -377,9 +382,6 @@ const SalaryPaymentReview = () => {
 
             <div className="flex gap-3 p-6 bg-gray-50 border-t border-gray-200">
               <button onClick={() => { setSelectedPayment(null); setEmployeeDetails([]) }} className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-xl hover:bg-gray-50 cursor-pointer">取消</button>
-              {(selectedPayment?.status === '已复核' || selectedPayment?.status === '待复核') && (
-                <button onClick={handleWithdraw} className="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-600 font-medium rounded-xl hover:bg-gray-50 cursor-pointer" disabled={submitting}>撤回</button>
-              )}
               <button onClick={() => handleApproveReject(false)} className="flex-1 px-4 py-3 bg-white border border-red-300 text-red-600 font-medium rounded-xl hover:bg-red-50 cursor-pointer" disabled={submitting}>驳回</button>
               <button onClick={() => handleApproveReject(true)} className="flex-1 px-4 py-3 bg-[#59168b] hover:bg-[#6d1fa7] text-white font-medium rounded-xl cursor-pointer" disabled={submitting}>通过</button>
             </div>
